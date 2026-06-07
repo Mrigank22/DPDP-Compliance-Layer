@@ -1,0 +1,2 @@
+-- 000009_create_refresh_tokens.down.sql
+DROP TABLE IF EXISTS refresh_tokens CASCADE;

@@ -1,0 +1,3 @@
+-- 000003_create_users.down.sql
+DROP TRIGGER IF EXISTS users_updated_at ON users;
+DROP TABLE IF EXISTS users CASCADE;

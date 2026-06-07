@@ -1,0 +1,95 @@
+# services/workers/docker-compose.yml
+# Local development stack for scan workers + supporting services.
+
+version: "3.9"
+
+x-worker-base: &worker-base
+  build: .
+  env_file: .env
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  volumes:
+    - ./app:/app/app   # live-reload in dev
+  restart: unless-stopped
+
+services:
+  # ── Infrastructure ──────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: datasentinel
+      POSTGRES_USER: datasentinel
+      POSTGRES_PASSWORD: datasentinel
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U datasentinel"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ── Workers ─────────────────────────────────────────────────────────────────
+  worker-discovery:
+    <<: *worker-base
+    command: >
+      celery -A app.celery_app worker
+      --loglevel=info --queues=discovery --concurrency=2
+      --hostname=discovery@%h
+
+  worker-classification:
+    <<: *worker-base
+    command: >
+      celery -A app.celery_app worker
+      --loglevel=info --queues=classification --concurrency=2
+      --hostname=classification@%h
+
+  worker-rights:
+    <<: *worker-base
+    command: >
+      celery -A app.celery_app worker
+      --loglevel=info --queues=rights --concurrency=2
+      --hostname=rights@%h
+
+  worker-reports:
+    <<: *worker-base
+    command: >
+      celery -A app.celery_app worker
+      --loglevel=info --queues=reports --concurrency=1
+      --hostname=reports@%h
+
+  worker-notifications:
+    <<: *worker-base
+    command: >
+      celery -A app.celery_app worker
+      --loglevel=info --queues=notifications --concurrency=2
+      --hostname=notifications@%h
+
+  # ── Beat scheduler ───────────────────────────────────────────────────────────
+  beat:
+    <<: *worker-base
+    command: celery -A app.celery_app beat --loglevel=info --scheduler=celery.schedulers:PersistentScheduler
+
+  # ── Flower monitoring UI ─────────────────────────────────────────────────────
+  flower:
+    <<: *worker-base
+    command: celery -A app.celery_app flower --port=5555
+    ports:
+      - "5555:5555"
+
+volumes:
+  pg_data:
