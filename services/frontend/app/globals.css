@@ -1,0 +1,205 @@
+@import "tailwindcss";
+
+:root {
+  --background: #0f172a;
+  --foreground: #f1f5f9;
+  --primary: #2563eb;
+  --primary-dark: #1e40af;
+  --primary-light: #3b82f6;
+}
+
+@layer base {
+  body {
+    @apply bg-slate-950 text-slate-100 font-sans;
+  }
+
+  * {
+    scroll-behavior: smooth;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-slate-900;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-slate-700 rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-slate-600;
+}
+
+/* Animations */
+@keyframes slideInLeft {
+  from {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideInRight {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -1000px 0;
+  }
+  100% {
+    background-position: 1000px 0;
+  }
+}
+
+@layer components {
+  .animate-slide-in-left {
+    animation: slideInLeft 0.3s ease-out;
+  }
+
+  .animate-slide-in-right {
+    animation: slideInRight 0.3s ease-out;
+  }
+
+  .animate-fade-in {
+    animation: fadeIn 0.3s ease-out;
+  }
+
+  .animate-scale-in {
+    animation: scaleIn 0.3s ease-out;
+  }
+
+  .card {
+    @apply bg-slate-800 border border-slate-700 rounded-lg p-6 shadow-lg;
+  }
+
+  .card-sm {
+    @apply bg-slate-800 border border-slate-700 rounded-lg p-4 shadow-lg;
+  }
+
+  .btn {
+    @apply px-4 py-2 rounded-lg font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2;
+  }
+
+  .btn-primary {
+    @apply bg-blue-600 text-white hover:bg-blue-700 active:scale-95;
+  }
+
+  .btn-secondary {
+    @apply bg-slate-700 text-slate-100 hover:bg-slate-600;
+  }
+
+  .btn-ghost {
+    @apply text-slate-300 hover:bg-slate-700 hover:text-slate-100;
+  }
+
+  .btn-danger {
+    @apply bg-red-600 text-white hover:bg-red-700;
+  }
+
+  .badge {
+    @apply inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold;
+  }
+
+  .badge-critical {
+    @apply bg-red-600/20 text-red-400;
+  }
+
+  .badge-high {
+    @apply bg-orange-500/20 text-orange-400;
+  }
+
+  .badge-medium {
+    @apply bg-yellow-500/20 text-yellow-300;
+  }
+
+  .badge-low {
+    @apply bg-blue-400/20 text-blue-300;
+  }
+
+  .badge-info {
+    @apply bg-gray-400/20 text-gray-300;
+  }
+
+  .status-connected {
+    @apply text-emerald-400;
+  }
+
+  .status-disconnected {
+    @apply text-slate-400;
+  }
+
+  .status-scanning {
+    @apply text-blue-400 animate-pulse;
+  }
+
+  .status-error {
+    @apply text-red-500;
+  }
+
+  table {
+    @apply w-full border-collapse;
+  }
+
+  th {
+    @apply bg-slate-900 text-slate-200 font-semibold text-left px-4 py-3 border-b border-slate-700;
+  }
+
+  td {
+    @apply px-4 py-3 border-b border-slate-700;
+  }
+
+  tbody tr {
+    @apply transition-colors hover:bg-slate-800;
+  }
+
+  tbody tr:last-child td {
+    @apply border-b-0;
+  }
+
+  .skeleton {
+    @apply animate-pulse bg-gradient-to-r from-slate-700 via-slate-600 to-slate-700 rounded-lg;
+    animation: shimmer 2s infinite;
+    background-size: 1000px 100%;
+  }
+}
