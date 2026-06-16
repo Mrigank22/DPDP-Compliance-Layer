@@ -1,0 +1,1045 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>DataSentinel — User &amp; Integration Guide</title>
+<style>
+  :root {
+    --navy: #0B1220;
+    --navy-2: #111A2E;
+    --ink: #1F2937;
+    --muted: #5B6675;
+    --faint: #8A94A6;
+    --line: #E4E8EF;
+    --bg-soft: #F7F9FC;
+    --bg-soft-2: #EEF3F9;
+    --mint: #0BA37F;
+    --mint-bright: #00E5A0;
+    --blue: #2563EB;
+    --crit: #DC2626;
+    --high: #EA580C;
+    --med: #D97706;
+    --low: #2563EB;
+    --info: #6B7280;
+  }
+
+  * { box-sizing: border-box; }
+
+  @page { size: A4; margin: 12mm 12mm 14mm; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    color: var(--ink);
+    font-family: "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-size: 10.6pt;
+    line-height: 1.55;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  h1, h2, h3, h4 { color: var(--navy); font-weight: 700; line-height: 1.2; }
+  h2 { font-size: 19pt; margin: 0 0 4px; }
+  h3 { font-size: 13.5pt; margin: 18px 0 6px; }
+  h4 { font-size: 11.4pt; margin: 14px 0 4px; color: var(--navy-2); }
+  p { margin: 7px 0; }
+  ul, ol { margin: 7px 0 7px 0; padding-left: 20px; }
+  li { margin: 3px 0; }
+  a { color: var(--mint); text-decoration: none; }
+  strong { color: var(--navy-2); }
+  code {
+    font-family: "Cascadia Code", "Consolas", "SFMono-Regular", monospace;
+    font-size: 9.2pt;
+    background: var(--bg-soft-2);
+    color: #0d3b66;
+    padding: 1px 5px;
+    border-radius: 4px;
+  }
+
+  /* ---------- Page handling ---------- */
+  .page-break { break-before: page; }
+  section { break-inside: auto; }
+  .card, table, .callout, figure, .kv { break-inside: avoid; }
+
+  /* ---------- Cover ---------- */
+  .cover {
+    background: radial-gradient(1200px 600px at 80% -10%, #15324a 0%, var(--navy) 45%, #070b13 100%);
+    color: #EAF2F0;
+    border-radius: 16px;
+    padding: 54px 48px 44px;
+    min-height: 252mm;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .cover::after {
+    content: "";
+    position: absolute; inset: 0;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px);
+    background-size: 34px 34px;
+    mask-image: radial-gradient(700px 420px at 75% 8%, #000 0%, transparent 75%);
+    -webkit-mask-image: radial-gradient(700px 420px at 75% 8%, #000 0%, transparent 75%);
+  }
+  .cover > * { position: relative; z-index: 1; }
+  .brandrow { display: flex; align-items: center; gap: 14px; }
+  .logo {
+    width: 50px; height: 50px; border-radius: 12px;
+    background: linear-gradient(160deg, #0e2a3d, #0a1622);
+    border: 1px solid rgba(0,229,160,0.35);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .brandname { font-size: 20pt; font-weight: 800; letter-spacing: 0.5px; color: #fff; }
+  .brandname span { color: var(--mint-bright); }
+  .eyebrow {
+    margin-top: 90px;
+    font-size: 10.5pt; letter-spacing: 3px; text-transform: uppercase;
+    color: var(--mint-bright); font-weight: 600;
+  }
+  .cover h1 {
+    color: #fff; font-size: 41pt; line-height: 1.05; margin: 10px 0 0;
+    letter-spacing: -0.5px;
+  }
+  .cover .sub { color: #B9C6D6; font-size: 14pt; margin-top: 16px; max-width: 70%; }
+  .cover .spacer { flex: 1; }
+  .pillrow { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 22px; }
+  .pill {
+    border: 1px solid rgba(0,229,160,0.28);
+    background: rgba(0,229,160,0.06);
+    color: #CFF6E8; border-radius: 999px;
+    padding: 5px 12px; font-size: 9pt; font-weight: 600;
+  }
+  .cover-meta {
+    display: flex; justify-content: space-between; align-items: flex-end;
+    border-top: 1px solid rgba(255,255,255,0.12);
+    margin-top: 26px; padding-top: 16px; color: #9FB0C2; font-size: 9.2pt;
+  }
+  .cover-meta b { color: #EAF2F0; }
+
+  /* ---------- Section header ---------- */
+  .sec-head {
+    display: flex; align-items: baseline; gap: 12px;
+    border-bottom: 2px solid var(--line);
+    padding-bottom: 8px; margin-bottom: 6px;
+  }
+  .sec-num {
+    color: var(--mint); font-weight: 800; font-size: 13pt;
+    font-family: "Cascadia Code","Consolas",monospace;
+  }
+  .lead { color: var(--muted); font-size: 11pt; margin: 2px 0 12px; }
+
+  /* ---------- Cards & callouts ---------- */
+  .card {
+    border: 1px solid var(--line); border-radius: 10px;
+    padding: 14px 16px; margin: 10px 0; background: #fff;
+  }
+  .card.soft { background: var(--bg-soft); }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+  .feat { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; background: #fff; }
+  .feat .ic { font-size: 15pt; }
+  .feat h4 { margin: 6px 0 3px; }
+  .feat p { margin: 0; font-size: 9.6pt; color: var(--muted); }
+
+  .callout {
+    border-left: 4px solid var(--mint);
+    background: linear-gradient(90deg, rgba(11,163,127,0.07), rgba(11,163,127,0));
+    padding: 11px 14px; border-radius: 0 8px 8px 0; margin: 12px 0;
+  }
+  .callout.blue { border-left-color: var(--blue); background: linear-gradient(90deg, rgba(37,99,235,0.07), rgba(37,99,235,0)); }
+  .callout.warn { border-left-color: var(--med); background: linear-gradient(90deg, rgba(217,119,6,0.08), rgba(217,119,6,0)); }
+  .callout .t { font-weight: 700; color: var(--navy-2); font-size: 9.8pt; text-transform: uppercase; letter-spacing: 0.6px; }
+  .callout p { margin: 3px 0 0; font-size: 9.9pt; }
+
+  /* ---------- Tables ---------- */
+  table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 9.4pt; }
+  th, td { text-align: left; padding: 7px 9px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { background: var(--navy); color: #fff; font-weight: 600; font-size: 9pt; letter-spacing: 0.3px; }
+  tr:nth-child(even) td { background: var(--bg-soft); }
+  td code { font-size: 8.6pt; }
+
+  .badge { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 8pt; font-weight: 700; color: #fff; }
+  .b-crit { background: var(--crit); } .b-high { background: var(--high); }
+  .b-med { background: var(--med); } .b-low { background: var(--low); } .b-info { background: var(--info); }
+  .b-ga { background: var(--mint); } .b-rm { background: #64748B; }
+
+  /* ---------- Code blocks ---------- */
+  pre {
+    background: var(--navy); color: #D7E2EE; border-radius: 9px;
+    padding: 12px 14px; font-family: "Cascadia Code","Consolas",monospace;
+    font-size: 8.7pt; line-height: 1.5; overflow: hidden; white-space: pre-wrap;
+    word-break: break-word; margin: 10px 0; border: 1px solid #1d2a40;
+  }
+  pre .c { color: #6FE0BE; }   /* command */
+  pre .k { color: #8FB7FF; }   /* key */
+  pre .s { color: #E6C07B; }   /* string */
+  pre .m { color: #7C8BA3; }   /* comment */
+
+  /* ---------- Key-value / steps ---------- */
+  .steps { counter-reset: step; list-style: none; padding-left: 0; }
+  .steps > li { position: relative; padding-left: 38px; margin: 12px 0; }
+  .steps > li::before {
+    counter-increment: step; content: counter(step);
+    position: absolute; left: 0; top: -2px;
+    width: 26px; height: 26px; border-radius: 50%;
+    background: var(--mint); color: #fff; font-weight: 700;
+    display: flex; align-items: center; justify-content: center; font-size: 10pt;
+  }
+  .steps > li h4 { margin: 2px 0 3px; }
+
+  .toc { columns: 2; column-gap: 34px; margin-top: 14px; }
+  .toc .row { display: flex; gap: 10px; padding: 4px 0; break-inside: avoid; border-bottom: 1px dotted var(--line); }
+  .toc .n { color: var(--mint); font-weight: 700; font-family: "Cascadia Code",monospace; min-width: 26px; }
+  .toc .t { color: var(--ink); }
+
+  .muted { color: var(--muted); }
+  .small { font-size: 9pt; }
+  .center { text-align: center; }
+  .mono { font-family: "Cascadia Code","Consolas",monospace; }
+
+  .hr { height: 1px; background: var(--line); margin: 16px 0; border: 0; }
+
+  .footer-note {
+    margin-top: 26px; padding-top: 12px; border-top: 1px solid var(--line);
+    color: var(--faint); font-size: 8.6pt; display: flex; justify-content: space-between;
+  }
+
+  .arch { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 12px 0; }
+  .node { border: 1px solid var(--line); border-radius: 10px; padding: 11px; text-align: center; background: #fff; }
+  .node .h { font-weight: 700; color: var(--navy); font-size: 10pt; }
+  .node .p { font-size: 8.6pt; color: var(--muted); margin-top: 3px; }
+  .node.acc { border-color: var(--mint); box-shadow: inset 0 0 0 1px rgba(11,163,127,0.18); }
+  .flowline { text-align:center; color: var(--faint); font-size: 8.4pt; margin: 2px 0 0; }
+
+  .statline { display:flex; gap:10px; flex-wrap:wrap; margin: 8px 0 2px; }
+  .stat { flex:1; min-width: 120px; border:1px solid var(--line); border-radius:10px; padding:10px 12px; background: var(--bg-soft); }
+  .stat .v { font-size: 16pt; font-weight: 800; color: var(--navy); }
+  .stat .l { font-size: 8.4pt; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+</style>
+</head>
+<body>
+
+<!-- ============================= COVER ============================= -->
+<div class="cover">
+  <div class="brandrow">
+    <div class="logo">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M12 2.5 20 6v6c0 4.4-3.1 7.8-8 9.5C7.1 19.8 4 16.4 4 12V6l8-3.5Z" fill="none" stroke="#00E5A0" stroke-width="1.4"/>
+        <path d="M8.4 12.2l2.6 2.6 4.6-5.2" stroke="#00E5A0" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </div>
+    <div class="brandname">Data<span>Sentinel</span></div>
+  </div>
+
+  <div class="eyebrow">User &amp; Integration Guide</div>
+  <h1>Protect personal data.<br/>Prove compliance.<br/>Stay in control.</h1>
+  <div class="sub">The India-first, DPDP-native platform for discovering, governing and enforcing the protection of personal data across your cloud, databases, APIs and AI systems.</div>
+
+  <div class="pillrow">
+    <span class="pill">DPDP Act 2023 ready</span>
+    <span class="pill">PII discovery &amp; classification</span>
+    <span class="pill">Inline enforcement gateway</span>
+    <span class="pill">AI / LLM data guard</span>
+    <span class="pill">Data-principal rights</span>
+    <span class="pill">Audit-ready evidence</span>
+  </div>
+
+  <div class="spacer"></div>
+
+  <div class="cover-meta">
+    <div>
+      <div><b>Document:</b> Product &amp; Integration Handbook</div>
+      <div><b>Audience:</b> Security, Compliance &amp; Platform teams</div>
+    </div>
+    <div style="text-align:right;">
+      <div><b>Version</b> 1.0</div>
+      <div>June 2026 &nbsp;•&nbsp; Confidential</div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================= ABOUT + TOC ============================= -->
+<section class="page-break">
+  <div class="sec-head"><span class="sec-num">00</span><h2>About this guide</h2></div>
+  <p class="lead">Everything you need to deploy DataSentinel, connect your data, and run a continuous personal-data protection program.</p>
+
+  <p>This handbook is written for the people who will operate DataSentinel day to day — security engineers, data-protection officers (DPOs), compliance leads and platform/DevOps teams. It explains what the product does, how each capability maps to a real compliance or security outcome, and exactly how to integrate it into your existing infrastructure.</p>
+
+  <div class="grid3">
+    <div class="feat"><div class="ic">🛡️</div><h4>What it does</h4><p>Discovers personal data, enforces policy on data in motion, and manages your DPDP obligations.</p></div>
+    <div class="feat"><div class="ic">🔌</div><h4>How to integrate</h4><p>Connect cloud assets and databases, and route sensitive traffic through the enforcement gateway.</p></div>
+    <div class="feat"><div class="ic">📈</div><h4>How to monitor</h4><p>Use the dashboard, live event feed, alerts and reports to watch your posture continuously.</p></div>
+  </div>
+
+  <h3>Table of contents</h3>
+  <div class="toc">
+    <div class="row"><span class="n">01</span><span class="t">Introduction &amp; overview</span></div>
+    <div class="row"><span class="n">02</span><span class="t">Platform architecture</span></div>
+    <div class="row"><span class="n">03</span><span class="t">Core capabilities at a glance</span></div>
+    <div class="row"><span class="n">04</span><span class="t">Getting started</span></div>
+    <div class="row"><span class="n">05</span><span class="t">Connecting &amp; monitoring assets</span></div>
+    <div class="row"><span class="n">06</span><span class="t">The enforcement gateway</span></div>
+    <div class="row"><span class="n">07</span><span class="t">AI / LLM data guard</span></div>
+    <div class="row"><span class="n">08</span><span class="t">Policies &amp; compliance packs</span></div>
+    <div class="row"><span class="n">09</span><span class="t">Data-principal rights (DSRs)</span></div>
+    <div class="row"><span class="n">10</span><span class="t">Consent management</span></div>
+    <div class="row"><span class="n">11</span><span class="t">Reports &amp; evidence</span></div>
+    <div class="row"><span class="n">12</span><span class="t">Alerts, webhooks &amp; integrations</span></div>
+    <div class="row"><span class="n">13</span><span class="t">API &amp; automation</span></div>
+    <div class="row"><span class="n">14</span><span class="t">Monitoring &amp; observability</span></div>
+    <div class="row"><span class="n">15</span><span class="t">Security &amp; multi-tenancy</span></div>
+    <div class="row"><span class="n">16</span><span class="t">Deployment options</span></div>
+    <div class="row"><span class="n">17</span><span class="t">Best practices</span></div>
+    <div class="row"><span class="n">18</span><span class="t">Troubleshooting &amp; FAQ</span></div>
+    <div class="row"><span class="n">A</span><span class="t">Appendix — PII types</span></div>
+    <div class="row"><span class="n">B</span><span class="t">Appendix — Enforcement actions</span></div>
+    <div class="row"><span class="n">C</span><span class="t">Appendix — Glossary &amp; support</span></div>
+  </div>
+</section>
+
+<!-- ============================= 01 INTRO ============================= -->
+<section class="page-break">
+  <div class="sec-head"><span class="sec-num">01</span><h2>Introduction &amp; overview</h2></div>
+  <p class="lead">DataSentinel is a data governance and sovereignty platform built specifically for the Indian Digital Personal Data Protection (DPDP) Act, 2023.</p>
+
+  <p>Modern organisations spread personal data across object storage, managed databases, internal APIs and — increasingly — third-party AI services. Most teams have no continuous visibility into <em>where</em> that data lives, <em>where it flows</em>, or <em>whether it is leaking</em> to places it should not. DataSentinel closes that gap with three coordinated functions:</p>
+
+  <div class="grid3">
+    <div class="feat"><div class="ic">🔍</div><h4>Discover</h4><p>Scan cloud and database assets to find and classify personal data — with recognisers tuned for Indian identifiers.</p></div>
+    <div class="feat"><div class="ic">⛔</div><h4>Enforce</h4><p>Inspect live request/response traffic through an inline proxy and mask, redact, block or tokenize sensitive fields in real time.</p></div>
+    <div class="feat"><div class="ic">📑</div><h4>Govern</h4><p>Manage rights requests, consent, policies and audit-ready reporting against your DPDP obligations.</p></div>
+  </div>
+
+  <h3>Who it is for</h3>
+  <ul>
+    <li><strong>Data-protection officers &amp; compliance teams</strong> — demonstrate DPDP compliance with living evidence, not spreadsheets.</li>
+    <li><strong>Security engineers</strong> — stop PII from leaking into unauthorised APIs, storage and AI systems.</li>
+    <li><strong>Platform / DevOps teams</strong> — deploy lightweight services into existing Kubernetes or Docker estates with minimal friction.</li>
+    <li><strong>Leadership</strong> — a single compliance score and risk posture across the whole organisation.</li>
+  </ul>
+
+  <h3>Why DataSentinel</h3>
+  <table>
+    <tr><th>Challenge</th><th>How DataSentinel helps</th></tr>
+    <tr><td>“We don’t know where personal data is.”</td><td>Automated discovery &amp; classification across S3, RDS and PostgreSQL with column- and object-level findings.</td></tr>
+    <tr><td>“Sensitive data leaks into external APIs and LLMs.”</td><td>An inline enforcement gateway that masks, blocks or tokenizes PII in real time, including dedicated AI/LLM protection.</td></tr>
+    <tr><td>“We can’t respond to data-principal requests in time.”</td><td>Built-in DSR workflow with 90-day deadline tracking and cross-asset data search.</td></tr>
+    <tr><td>“Audits are painful and manual.”</td><td>One-click DPDP, DPIA and audit-evidence reports backed by an immutable event trail.</td></tr>
+    <tr><td>“Our data must stay in India.”</td><td>Data-sovereignty controls, India-region defaults and cross-border transfer policies.</td></tr>
+  </table>
+
+  <div class="callout">
+    <div class="t">Outcome</div>
+    <p>Within days of connecting your first asset you have a measured compliance posture, a prioritised list of exposures, and live enforcement preventing new leaks — without re-architecting your applications.</p>
+  </div>
+</section>
+
+<!-- ============================= 02 ARCHITECTURE ============================= -->
+<section class="page-break">
+  <div class="sec-head"><span class="sec-num">02</span><h2>Platform architecture</h2></div>
+  <p class="lead">Four lightweight, independently deployable services backed by standard data stores.</p>
+
+  <div class="arch">
+    <div class="node acc"><div class="h">Control Plane</div><div class="p">API &amp; intelligence layer. Policies, findings, rights, reports, auth.</div></div>
+    <div class="node acc"><div class="h">Enforcement Gateway</div><div class="p">Inline HTTP/AI proxy. Inspects &amp; enforces on live traffic.</div></div>
+    <div class="node acc"><div class="h">Scan Workers</div><div class="p">Async discovery, classification &amp; posture scanning.</div></div>
+    <div class="node acc"><div class="h">Dashboard</div><div class="p">The web console your team works in every day.</div></div>
+  </div>
+  <p class="flowline">▲ All four services share encrypted state and a common tenant model ▲</p>
+
+  <div class="grid2">
+    <div class="card soft">
+      <h4>The services</h4>
+      <ul class="small">
+        <li><strong>Control Plane</strong> — the brain. Exposes the REST API, evaluates policies, stores findings, drives reports and orchestrates scans.</li>
+        <li><strong>Enforcement Gateway</strong> — a high-performance reverse/egress proxy that inspects request and response bodies and applies policy actions inline.</li>
+        <li><strong>Scan Workers</strong> — background workers that connect to your assets, sample data, classify PII and check cloud posture.</li>
+        <li><strong>Dashboard</strong> — a modern web UI for analysts, DPOs and admins.</li>
+      </ul>
+    </div>
+    <div class="card soft">
+      <h4>The data stores</h4>
+      <ul class="small">
+        <li><strong>PostgreSQL 16</strong> — application state (assets, policies, findings, rights, consent), isolated per tenant with row-level security.</li>
+        <li><strong>Redis 7</strong> — policy cache, the tokenization vault and the worker task queue.</li>
+        <li><strong>ClickHouse 24</strong> — high-volume audit logs and gateway events, retained for years for evidence.</li>
+      </ul>
+      <p class="small muted">You can run these as managed services (Amazon RDS, ElastiCache, ClickHouse Cloud) or self-host them.</p>
+    </div>
+  </div>
+
+  <h3>How data moves</h3>
+  <ol class="small">
+    <li><strong>Discovery:</strong> Workers connect to a registered asset, sample records, and write classified findings to the control plane.</li>
+    <li><strong>Enforcement:</strong> Application traffic routed through the gateway is inspected; matched policies mask/redact/block/tokenize PII before it leaves your estate. Every decision is logged.</li>
+    <li><strong>Governance:</strong> Findings, gateway events, rights requests and consent records roll up into the dashboard, alerts and compliance reports.</li>
+  </ol>
+
+  <div class="callout blue">
+    <div class="t">Deployment flexibility</div>
+    <p>Use the managed SaaS, or run the entire platform inside your own VPC/Kubernetes cluster for full data residency. See <strong>Section 16 — Deployment options</strong>.</p>
+  </div>
+</section>
+
+<!-- ============================= 03 CAPABILITIES ============================= -->
+<section class="page-break">
+  <div class="sec-head"><span class="sec-num">03</span><h2>Core capabilities at a glance</h2></div>
+  <p class="lead">A single platform that spans discovery, real-time enforcement and compliance operations.</p>
+
+  <div class="grid2">
+    <div class="feat"><div class="ic">🔍</div><h4>PII discovery &amp; classification</h4><p>Find personal data in S3, RDS and PostgreSQL using Indian-tuned recognisers (Aadhaar, PAN, UPI, GSTIN and more) with checksum validation.</p></div>
+    <div class="feat"><div class="ic">⛔</div><h4>Inline enforcement gateway</h4><p>Mask, redact, block, tokenize, encrypt, hash or alert on PII in live request/response traffic.</p></div>
+    <div class="feat"><div class="ic">🤖</div><h4>AI / LLM data guard</h4><p>Strip personal data from prompts to OpenAI, Anthropic, Google &amp; others before it ever leaves your network.</p></div>
+    <div class="feat"><div class="ic">🧭</div><h4>Security posture</h4><p>Detect risky misconfigurations — public buckets, missing encryption, weak transport security.</p></div>
+    <div class="feat"><div class="ic">⚖️</div><h4>Data-principal rights</h4><p>Track access, correction, erasure, portability &amp; nomination requests against the 90-day deadline.</p></div>
+    <div class="feat"><div class="ic">✅</div><h4>Consent management</h4><p>Record, summarise and withdraw consent by purpose with a full history.</p></div>
+    <div class="feat"><div class="ic">📜</div><h4>Policies &amp; templates</h4><p>Ready-made DPDP, RBI, IRDAI, AI-guard and security policy packs you can apply in one click.</p></div>
+    <div class="feat"><div class="ic">📑</div><h4>Reports &amp; evidence</h4><p>Generate DPDP compliance, DPIA, asset-inventory and audit-evidence reports on demand.</p></div>
+    <div class="feat"><div class="ic">🔔</div><h4>Alerts &amp; webhooks</h4><p>Route incidents to Slack, PagerDuty, JIRA, email or any HTTP endpoint.</p></div>
+    <div class="feat"><div class="ic">🗺️</div><h4>Data-flow mapping</h4><p>Visualise where PII flows to — and approve or flag each destination.</p></div>
+    <div class="feat"><div class="ic">📊</div><h4>Live dashboard</h4><p>A real-time compliance score, risk trends and a live gateway event feed.</p></div>
+    <div class="feat"><div class="ic">🔐</div><h4>Enterprise security</h4><p>Per-tenant encryption, row-level isolation, RBAC and full audit logging.</p></div>
+  </div>
+</section>
+
+<!-- ============================= 04 GETTING STARTED ============================= -->
+<section class="page-break">
+  <div class="sec-head"><span class="sec-num">04</span><h2>Getting started</h2></div>
+  <p class="lead">From sign-in to your first findings in five steps.</p>
+
+  <ol class="steps">
+    <li>
+      <h4>Sign in &amp; create your workspace</h4>
+      <p>Register your organisation (which becomes your isolated <em>tenant</em>) and your first administrator account. Invite teammates from <strong>Settings → Team</strong> and assign each a role (owner, admin, analyst or viewer).</p>
+    </li>
+    <li>
+      <h4>Connect your first asset</h4>
+      <p>Go to <strong>Assets → Connect asset</strong>, choose a type (e.g. Amazon S3 or PostgreSQL), and provide read-only connection details. Use <strong>Test connection</strong> to confirm credentials before saving.</p>
+    </li>
+    <li>
+      <h4>Run a scan</h4>
+      <p>Open the asset and click <strong>Run scan</strong>. Workers sample records, classify PII and write findings. Incremental scans also run automatically on a schedule.</p>
+    </li>
+    <li>
+      <h4>Review findings</h4>
+      <p>Visit <strong>Findings</strong> to see what was discovered, ranked by severity. Each finding shows the PII types, location and a remediation hint. Filter by severity, type or asset.</p>
+    </li>
+    <li>
+      <h4>Apply a policy &amp; turn on enforcement</h4>
+      <p>From <strong>Policies → Templates</strong>, apply the DPDP starter pack, then deploy the gateway (Section 6) to begin masking or blocking PII on live traffic.</p>
+    </li>
+  </ol>
+
+  <div class="callout">
+    <div class="t">The dashboard at a glance</div>
+    <p>Your home screen shows a <strong>compliance score</strong>, total PII records and assets, open and critical findings, unacknowledged alerts, overdue rights requests, a PII-type breakdown, a 30-day findings trend, your top-risk assets and a live data-flow map.</p>
+  </div>
+</section>
+
+<!-- ============================= 05 ASSETS ============================= -->
+<section class="page-break">
+  <div class="sec-head"><span class="sec-num">05</span><h2>Connecting &amp; monitoring assets</h2></div>
+  <p class="lead">Assets are the cloud and database resources DataSentinel scans for personal data.</p>
+
+  <h3>Supported asset types</h3>
+  <table>
+    <tr><th>Type</th><th>What it scans</th><th>Status</th></tr>
+    <tr><td><strong>Amazon S3</strong> <code>s3_bucket</code></td><td>Objects (JSON, CSV, NDJSON, text/log) sampled for PII; bucket security posture.</td><td><span class="badge b-ga">Available</span></td></tr>
+    <tr><td><strong>PostgreSQL</strong> <code>postgresql</code></td><td>Tables &amp; columns sampled for PII using column-name heuristics first.</td><td><span class="badge b-ga">Available</span></td></tr>
+    <tr><td><strong>Amazon RDS</strong> <code>rds_instance</code></td><td>PostgreSQL-compatible RDS instances; data &amp; transport posture.</td><td><span class="badge b-ga">Available</span></td></tr>
+    <tr><td><strong>Google Cloud Storage / Azure Blob</strong></td><td>Object storage discovery.</td><td><span class="badge b-rm">Roadmap</span></td></tr>
+    <tr><td><strong>API &amp; LLM endpoints</strong></td><td>Governed live via the enforcement gateway (Sections 6–7).</td><td><span class="badge b-ga">Available</span></td></tr>
+  </table>
+
+  <h3>Connection configuration</h3>
+  <p>Credentials are stored <strong>encrypted</strong> (AES-256-GCM with a per-tenant key) and are only ever decrypted in-memory by a worker during a scan. Always use a <strong>read-only</strong> principal.</p>
+
+  <div class="grid2">
+    <div class="card">
+      <h4>Amazon S3</h4>
+<pre><span class="m"># connection_config</span>
+{
+  <span class="k">"bucket_name"</span>: <span class="s">"acme-customer-data"</span>,
+  <span class="k">"region"</span>:      <span class="s">"ap-south-1"</span>,
+  <span class="k">"prefix"</span>:      <span class="s">"exports/"</span>,
+  <span class="k">"role_arn"</span>:    <span class="s">"arn:aws:iam::...:role/ds-scan"</span>
+}</pre>
+      <p class="small muted">Grant the role <code>s3:ListBucket</code>, <code>s3:GetObject</code> and the read-only bucket posture permissions.</p>
+    </div>
+    <div class="card">
+      <h4>PostgreSQL / RDS</h4>
+<pre><span class="m"># connection_config</span>
+{
+  <span class="k">"host"</span>:     <span class="s">"db.internal:5432"</span>,
+  <span class="k">"database"</span>: <span class="s">"app"</span>,
+  <span class="k">"username"</span>: <span class="s">"ds_readonly"</span>,
+  <span class="k">"password"</span>: <span class="s">"••••••••"</span>,
+  <span class="k">"schema"</span>:   <span class="s">"public"</span>,
+  <span class="k">"ssl_mode"</span>: <span class="s">"require"</span>
+}</pre>
+      <p class="small muted">Create a role with <code>SELECT</code> on the schemas you want scanned.</p>
+    </div>
+  </div>
+
+  <h3>Scanning &amp; monitoring</h3>
+  <ul>
+    <li><strong>Manual scans</strong> — run on demand from any asset’s page.</li>
+    <li><strong>Scheduled scans</strong> — assets not scanned in the last 24 hours are picked up automatically.</li>
+    <li><strong>Posture checks</strong> — run periodically to surface misconfigurations as <code>misconfiguration</code> findings (e.g. public bucket, no default encryption, versioning disabled, TLS not enforced).</li>
+    <li><strong>Per-asset view</strong> — drill into findings, scan history and detected data flows for each asset.</li>
+    <li><strong>Risk score</strong> — every asset receives a 0–100 score derived from finding severity and PII volume.</li>
+  </ul>
+
+  <div class="callout warn">
+    <div class="t">Privacy by design</div>
+    <p>Scans never store raw personal data. Findings keep only metadata — PII type, location, counts and safely-masked samples — so DataSentinel itself never becomes a new copy of your sensitive data.</p>
+  </div>
+</section>
+
+<!-- ============================= 06 GATEWAY ============================= -->
+<section class="page-break">
+  <div class="sec-head"><span class="sec-num">06</span><h2>The enforcement gateway</h2></div>
+  <p class="lead">Stop personal data from leaking — in real time — by routing traffic through the gateway.</p>
+
+  <p>The gateway is a transparent HTTP proxy you place in front of selected API endpoints, or use as an <em>egress</em> proxy for outbound calls to external services. It parses request and response bodies, runs the PII detection engine, and applies your policy actions <strong>before</strong> data leaves your estate. Every decision is logged for evidence; typical added latency is only a few milliseconds.</p>
+
+  <h3>How to route traffic</h3>
+  <p>Point your client (or egress configuration) at the gateway and tell it where the request should ultimately go using request headers:</p>
+  <table>
+    <tr><th>Header</th><th>Required</th><th>Purpose</th></tr>
+    <tr><td><code>X-Upstream-URL</code></td><td>Yes</td><td>The real destination the gateway should forward to.</td></tr>
+    <tr><td><code>X-Tenant-ID</code></td><td>Yes*</td><td>Identifies your tenant (or derived from a verified JWT).</td></tr>
+    <tr><td><code>X-API-Key</code></td><td>Yes*</td><td>Service authentication for the gateway.</td></tr>
+    <tr><td><code>Authorization: Bearer</code></td><td>Optional</td><td>RS256 JWT — verified, with the tenant taken from the token.</td></tr>
+  </table>
+  <p class="small muted">*Provide either an API key + tenant header, or a verified Bearer JWT.</p>
+
+  <h4>Example — proxy an outbound API call</h4>
+<pre><span class="c">curl</span> https://gateway.acme.com/v1/customers \
+  -H <span class="s">"X-API-Key: &lt;service-key&gt;"</span> \
+  -H <span class="s">"X-Tenant-ID: 7f3c…"</span> \
+  -H <span class="s">"X-Upstream-URL: https://partner-api.example.com/v1/customers"</span> \
+  -H <span class="s">"Content-Type: application/json"</span> \
+  -d <span class="s">'{ "pan": "ABCDE1234F", "phone": "+91 98xxxxxx10" }'</span>
+<span class="m"># → PII is masked/blocked per policy before reaching the partner API</span></pre>
+
+  <h3>Enforcement actions</h3>
+  <p>Each gateway rule matches a route, direction (request/response) and PII types, then applies one action:</p>
+  <table>
+    <tr><th>Action</th><th>Effect</th></tr>
+    <tr><td><strong>mask</strong></td><td>Replace characters while keeping format (e.g. <code>XXXX-XXXX-1234</code>).</td></tr>
+    <tr><td><strong>redact</strong></td><td>Remove the field from the payload entirely.</td></tr>
+    <tr><td><strong>block</strong></td><td>Reject the request with HTTP 403 and log the violation.</td></tr>
+    <tr><td><strong>tokenize</strong></td><td>Swap the value for a reversible, format-preserving token from the per-tenant vault.</td></tr>
+    <tr><td><strong>encrypt</strong></td><td>AES-256-GCM encrypt the field with the tenant key.</td></tr>
+    <tr><td><strong>hash</strong></td><td>One-way SHA-256 pseudonymisation.</td></tr>
+    <tr><td><strong>alert</strong></td><td>Allow the traffic but raise an alert.</td></tr>
+  </table>
+
+  <div class="callout">
+    <div class="t">Built-in safety</div>
+    <p>The gateway refuses to proxy to cloud metadata and link-local endpoints (SSRF protection), fails open if policy can’t be loaded so legitimate traffic is never dropped by accident, and exposes <code>/healthz</code>, <code>/readyz</code> and Prometheus <code>/metrics</code>.</p>
+  </div>
+</section>
+
+<!-- ============================= 07 LLM GUARD ============================= -->
+<section class="page-break">
+  <div class="sec-head"><span class="sec-num">07</span><h2>AI / LLM data guard</h2></div>
+  <p class="lead">Adopt AI safely — without sending customer PII to third-party models.</p>
+
+  <p>When traffic targets a known LLM provider, the gateway switches into <strong>LLM mode</strong>. It understands chat/completion request formats, scans every prompt segment for personal data, and sanitises it before forwarding. It also inspects the model’s response for unexpected PII leakage.</p>
+
+  <div class="grid2">
+    <div class="card soft">
+      <h4>Recognised providers</h4>
+      <ul class="small">
+        <li>OpenAI — <code>api.openai.com</code></li>
+        <li>Anthropic — <code>api.anthropic.com</code></li>
+        <li>Google — <code>generativelanguage.googleapis.com</code></li>
+        <li>Azure OpenAI &amp; AWS Bedrock</li>
+      </ul>
+    </div>
+    <div class="card soft">
+      <h4>What it does</h4>
+      <ul class="small">
+        <li>Redacts/masks PII in prompts pre-flight.</li>
+        <li>Scans responses for leaked personal data.</li>
+        <li>Logs sanitised + hashed originals for audit.</li>
+        <li>Can block requests carrying sensitive financial data.</li>
+      </ul>
+    </div>
+  </div>
+
+  <h4>Example — guard an OpenAI call</h4>
+<pre><span class="c">curl</span> https://gateway.acme.com/v1/chat/completions \
+  -H <span class="s">"X-API-Key: &lt;service-key&gt;"</span> \
+  -H <span class="s">"X-Tenant-ID: 7f3c…"</span> \
+  -H <span class="s">"X-Upstream-URL: https://api.openai.com/v1/chat/completions"</span> \
+  -H <span class="s">"Content-Type: application/json"</span> \
+  -d <span class="s">'{ "model": "gpt-4o", "messages": [
+        {"role":"user","content":"Summarise: Aadhaar 1234 5678 9012 …"}
+      ] }'</span>
+<span class="m"># → Aadhaar is masked before the prompt reaches OpenAI</span></pre>
+
+  <div class="callout blue">
+    <div class="t">Ready-made policy</div>
+    <p>Apply the <strong>AI / LLM Guard pack</strong> (Section 8) to redact all PII from prompts, alert on PII in responses, and block prompts containing sensitive financial data — no custom rules required.</p>
+  </div>
+</section>
+
+<!-- ============================= 08 POLICIES ============================= -->
+<section class="page-break">
+  <div class="sec-head"><span class="sec-num">08</span><h2>Policies &amp; compliance packs</h2></div>
+  <p class="lead">Express your data-protection rules once, then enforce them everywhere.</p>
+
+  <p>A <strong>policy</strong> is a set of rules that decide what happens when personal data is detected. Each rule combines conditions (PII type, direction, destination) with an action (mask, block, tokenize, …) and an enforcement mode:</p>
+  <ul>
+    <li><strong>Alert-only</strong> — observe and report without changing traffic (great for rollout).</li>
+    <li><strong>Enforce</strong> — actively apply the action.</li>
+    <li><strong>Audit-only</strong> — record for evidence.</li>
+  </ul>
+  <p>Build policies visually in the dashboard, see a live preview of the underlying rule definition, and version every change with one-click rollback.</p>
+
+  <h3>Built-in template packs</h3>
+  <div class="grid2">
+    <div class="card">
+      <h4>DPDP compliance pack</h4>
+      <ul class="small">
+        <li>Mask all Indian PII in responses to unapproved destinations</li>
+        <li>Block transfers outside approved countries</li>
+        <li>Alert on personal data in LLM prompts</li>
+        <li>Redact PII from application logs</li>
+        <li>90-day rights-request deadline alerts</li>
+        <li>Breach-indicator &amp; mass-export detection</li>
+        <li>Children’s-data consent guardrails</li>
+        <li>Retention-period enforcement</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h4>RBI data-localization pack</h4>
+      <ul class="small">
+        <li>Keep payment data on Indian infrastructure</li>
+        <li>Alert on transaction data to non-approved endpoints</li>
+        <li>Mask card numbers (PCI-style, keep last 4)</li>
+        <li>Tokenize account numbers in API traffic</li>
+      </ul>
+      <h4 style="margin-top:12px;">IRDAI pack</h4>
+      <ul class="small">
+        <li>Alert on policyholder data in cross-border transfers</li>
+        <li>Mask health-data fields on non-clinical paths</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h4>AI / LLM guard pack</h4>
+      <ul class="small">
+        <li>Redact PII from prompts to external LLMs</li>
+        <li>Alert when responses contain new personal data</li>
+        <li>Block prompts with sensitive financial data</li>
+        <li>Watermark responses for leak tracing</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h4>General security pack</h4>
+      <ul class="small">
+        <li>Alert on bulk exports (&gt;1000 records)</li>
+        <li>Block unauthorised IP ranges</li>
+        <li>Alert on PII access outside business hours</li>
+        <li>Detect credentials/secrets in traffic</li>
+        <li>Rate-limit PII-bearing endpoints</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="callout">
+    <div class="t">Apply in one click</div>
+    <p>From <strong>Policies → Templates</strong>, choose a pack and apply it. Start in alert-only mode, review the gateway live feed, then switch to enforce when you’re confident.</p>
+  </div>
+</section>
+
+<!-- ============================= 09 RIGHTS ============================= -->
+<section class="page-break">
+  <div class="sec-head"><span class="sec-num">09</span><h2>Data-principal rights (DSRs)</h2></div>
+  <p class="lead">Meet your DPDP obligation to respond to individuals within 90 days.</p>
+
+  <p>When an individual (a “data principal”) exercises their rights, log the request in <strong>Rights</strong>. DataSentinel tracks it through its lifecycle and automatically computes the statutory deadline.</p>
+
+  <table>
+    <tr><th>Request type</th><th>What DataSentinel does</th></tr>
+    <tr><td><strong>Access</strong></td><td>Searches every connected asset for the principal’s records and compiles a structured export.</td></tr>
+    <tr><td><strong>Correction</strong></td><td>Locates the records and flags exact asset/table/location for correction.</td></tr>
+    <tr><td><strong>Erasure</strong></td><td>Identifies all locations of the data and queues erasure (final deletion stays human-approved for safety).</td></tr>
+    <tr><td><strong>Portability</strong></td><td>Extracts the principal’s data in a machine-readable format.</td></tr>
+    <tr><td><strong>Nomination</strong></td><td>Records a nominee for the data principal.</td></tr>
+  </table>
+
+  <h3>Workflow</h3>
+  <ol class="small">
+    <li><strong>Received</strong> — request logged; 90-day due date set automatically.</li>
+    <li><strong>Assign</strong> — route to an owner on your team.</li>
+    <li><strong>Search</strong> — trigger a cross-asset search to locate the individual’s data.</li>
+    <li><strong>Complete or reject</strong> — record the response data, or a documented rejection reason.</li>
+  </ol>
+
+  <div class="callout warn">
+    <div class="t">Never miss a deadline</div>
+    <p>DataSentinel raises <strong>high-severity</strong> alerts as deadlines approach and <strong>critical</strong> alerts when a request becomes overdue. The dashboard surfaces overdue counts and an upcoming-deadline calendar.</p>
+  </div>
+</section>
+
+<!-- ============================= 10 CONSENT ============================= -->
+<section class="page-break">
+  <div class="sec-head"><span class="sec-num">10</span><h2>Consent management</h2></div>
+  <p class="lead">Capture and prove lawful basis for processing, by purpose.</p>
+
+  <p>Record each consent event — who consented, for what purpose, when, through which mechanism, and the notice version they saw. DataSentinel maintains the full history, including withdrawals, so you can demonstrate lawful basis at any moment.</p>
+
+  <div class="grid2">
+    <div class="card soft">
+      <h4>What you can do</h4>
+      <ul class="small">
+        <li>Record consent via the dashboard or API/SDK.</li>
+        <li>Look up all consents for a single data principal.</li>
+        <li>Record a withdrawal (with timestamp).</li>
+        <li>Bulk-import existing consent from CSV.</li>
+      </ul>
+    </div>
+    <div class="card soft">
+      <h4>What you can see</h4>
+      <ul class="small">
+        <li>Aggregate consent given vs. withdrawn.</li>
+        <li>Breakdown by processing purpose.</li>
+        <li>Consent mechanism (form, API, SDK, import).</li>
+        <li>Per-principal consent timeline.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="callout">
+    <div class="t">Why it matters</div>
+    <p>Consent records feed directly into your DPDP and DPIA reports, evidencing that processing has a valid, documented basis — and that withdrawals are honoured.</p>
+  </div>
+</section>
+
+<!-- ============================= 11 REPORTS ============================= -->
+<section class="page-break">
+  <div class="sec-head"><span class="sec-num">11</span><h2>Reports &amp; evidence</h2></div>
+  <p class="lead">Turn your live posture into audit-ready documents on demand.</p>
+
+  <p>Generate reports from <strong>Reports → Generate</strong>. Each is assembled from your current data and made available for download.</p>
+
+  <table>
+    <tr><th>Report</th><th>Use it for</th></tr>
+    <tr><td><strong>DPDP compliance summary</strong></td><td>Section-by-section status of your DPDP obligations.</td></tr>
+    <tr><td><strong>DPIA</strong></td><td>Data-protection impact assessment with assets, findings and consent.</td></tr>
+    <tr><td><strong>Asset inventory</strong></td><td>A full register of connected data assets and their risk.</td></tr>
+    <tr><td><strong>Executive summary</strong></td><td>Leadership-level metrics and risk posture.</td></tr>
+    <tr><td><strong>Incident report</strong></td><td>Findings plus recent scan history for an event.</td></tr>
+    <tr><td><strong>Audit-evidence pack</strong></td><td>Scans, findings, rights and consent bundled for auditors.</td></tr>
+  </table>
+
+  <div class="callout blue">
+    <div class="t">Backed by an immutable trail</div>
+    <p>Reports draw on an event store that retains gateway decisions and audit logs for years, so the evidence behind every number is always available.</p>
+  </div>
+</section>
+
+<!-- ============================= 12 ALERTS / WEBHOOKS ============================= -->
+<section class="page-break">
+  <div class="sec-head"><span class="sec-num">12</span><h2>Alerts, webhooks &amp; integrations</h2></div>
+  <p class="lead">Get the right signal to the right team, in the tools you already use.</p>
+
+  <p>DataSentinel raises alerts for policy violations, detected breaches, scan anomalies, rights-request deadlines, retention events and cross-border transfers. Acknowledge them in-app individually or in bulk, and fan them out to your operational tooling.</p>
+
+  <div class="grid3">
+    <div class="feat"><div class="ic">💬</div><h4>Slack</h4><p>Post incidents to a channel.</p></div>
+    <div class="feat"><div class="ic">📟</div><h4>PagerDuty</h4><p>Page on-call for criticals.</p></div>
+    <div class="feat"><div class="ic">🪪</div><h4>JIRA</h4><p>Open tickets automatically.</p></div>
+    <div class="feat"><div class="ic">✉️</div><h4>Email</h4><p>Notify recipient lists.</p></div>
+    <div class="feat"><div class="ic">🔗</div><h4>Generic webhook</h4><p>Signed HTTP POST to any URL.</p></div>
+    <div class="feat"><div class="ic">⚙️</div><h4>Preferences</h4><p>Tune channels &amp; thresholds.</p></div>
+  </div>
+
+  <p>Configure all of this under <strong>Settings → Integrations</strong>: add a webhook, choose which event types it receives, send a test event, and copy the signing secret (shown once) so you can verify authenticity on your side.</p>
+
+  <div class="callout warn">
+    <div class="t">Secure by default</div>
+    <p>Webhook payloads are signed. Always verify the signature using your stored secret before acting on an event.</p>
+  </div>
+</section>
+
+<!-- ============================= 13 API ============================= -->
+<section class="page-break">
+  <div class="sec-head"><span class="sec-num">13</span><h2>API &amp; automation</h2></div>
+  <p class="lead">Everything in the dashboard is available through a clean REST API.</p>
+
+  <p>Automate onboarding, scanning, reporting and rights workflows. The API base path is <code>/api/v1</code>. Authenticate with a user’s Bearer JWT or, for machine-to-machine use, an <strong>API key</strong>.</p>
+
+  <h4>Create &amp; use an API key</h4>
+  <p>Create keys under <strong>Settings → API Keys</strong> with scoped permissions (read, write, gateway, admin). The full key is shown only once — store it securely.</p>
+<pre><span class="m"># List assets using an API key</span>
+<span class="c">curl</span> https://app.datasentinel.io/api/v1/assets \
+  -H <span class="s">"X-API-Key: ds_live_••••••••"</span>
+
+<span class="m"># Trigger a scan</span>
+<span class="c">curl</span> -X POST https://app.datasentinel.io/api/v1/assets/&lt;id&gt;/scan \
+  -H <span class="s">"X-API-Key: ds_live_••••••••"</span> \
+  -d <span class="s">'{ "scan_type": "full" }'</span></pre>
+
+  <h3>Frequently used endpoints</h3>
+  <table>
+    <tr><th>Area</th><th>Endpoints</th></tr>
+    <tr><td>Assets</td><td><code>GET/POST /assets</code>, <code>/assets/:id/scan</code>, <code>/assets/:id/findings</code></td></tr>
+    <tr><td>Findings</td><td><code>GET /findings</code>, <code>/findings/summary</code>, <code>/findings/:id/resolve</code></td></tr>
+    <tr><td>Policies</td><td><code>GET/POST /policies</code>, <code>/policies/templates</code>, <code>/:id/activate</code></td></tr>
+    <tr><td>Gateway</td><td><code>/gateway/rules</code>, <code>/gateway/events</code>, <code>/gateway/stats</code>, <code>/gateway/data-flows</code></td></tr>
+    <tr><td>Rights</td><td><code>GET/POST /rights-requests</code>, <code>/:id/assign</code>, <code>/:id/complete</code></td></tr>
+    <tr><td>Reports</td><td><code>GET/POST /reports</code>, <code>/reports/templates</code></td></tr>
+    <tr><td>Consent</td><td><code>/consent/record</code>, <code>/consent/summary</code>, <code>/consent/withdraw/:id</code></td></tr>
+  </table>
+
+  <p class="small muted">All responses use a consistent envelope: <code>{ data, meta, error, request_id }</code> with pagination metadata where relevant.</p>
+</section>
+
+<!-- ============================= 14 MONITORING ============================= -->
+<section class="page-break">
+  <div class="sec-head"><span class="sec-num">14</span><h2>Monitoring &amp; observability</h2></div>
+  <p class="lead">Watch your data-protection posture continuously.</p>
+
+  <div class="statline">
+    <div class="stat"><div class="v">Score</div><div class="l">Live compliance</div></div>
+    <div class="stat"><div class="v">Feed</div><div class="l">Real-time events</div></div>
+    <div class="stat"><div class="v">Trends</div><div class="l">30-day history</div></div>
+    <div class="stat"><div class="v">Map</div><div class="l">Data flows</div></div>
+  </div>
+
+  <h3>In the dashboard</h3>
+  <ul>
+    <li><strong>Compliance score &amp; risk gauge</strong> — a single 0–100 measure of your posture, updated as findings change.</li>
+    <li><strong>Gateway live feed</strong> — a streaming view of enforcement decisions (masked, blocked, tokenized) with PII types, action and latency.</li>
+    <li><strong>Findings trends</strong> — findings per day over the last 30 days, stacked by severity.</li>
+    <li><strong>Data-flow map</strong> — every detected destination for personal data, colour-coded approved (green) vs. unapproved (red); approve flows you trust.</li>
+    <li><strong>DPDP status checks</strong> — a section-by-section readiness view.</li>
+  </ul>
+
+  <h3>For your platform team</h3>
+  <ul>
+    <li><strong>Prometheus metrics</strong> — the gateway exposes <code>/metrics</code> (requests, PII detections, blocks, LLM calls, latency, uptime) for scraping into Grafana.</li>
+    <li><strong>Health endpoints</strong> — <code>/healthz</code> (liveness) and <code>/readyz</code> (readiness) on every service for Kubernetes probes.</li>
+    <li><strong>Structured JSON logs</strong> — every service logs with request IDs and tenant context, and never logs raw PII.</li>
+  </ul>
+
+  <div class="callout">
+    <div class="t">Operational signals worth watching</div>
+    <p>Gateway block-rate spikes, sudden bulk-export findings, rising overdue-DSR counts and new unapproved data flows are the leading indicators of a developing incident.</p>
+  </div>
+</section>
+
+<!-- ============================= 15 SECURITY ============================= -->
+<section class="page-break">
+  <div class="sec-head"><span class="sec-num">15</span><h2>Security &amp; multi-tenancy</h2></div>
+  <p class="lead">Security is foundational, not an add-on.</p>
+
+  <div class="grid2">
+    <div class="card">
+      <h4>Encryption</h4>
+      <ul class="small">
+        <li>Asset credentials &amp; secrets: <strong>AES-256-GCM</strong> with a <strong>per-tenant key</strong> derived via HKDF from a master key.</li>
+        <li>Passwords: bcrypt. API keys: SHA-256 hashed — never stored in clear.</li>
+        <li>TLS in transit; HSTS on responses.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h4>Tenant isolation</h4>
+      <ul class="small">
+        <li><strong>Row-level security</strong> in PostgreSQL scopes every query to one tenant.</li>
+        <li>Tenant context is set on each request and each scan.</li>
+        <li>One workspace can never see another’s data.</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>Role-based access control</h3>
+  <table>
+    <tr><th>Role</th><th>Capabilities</th></tr>
+    <tr><td><strong>Owner</strong></td><td>Full access, including billing; can delete the workspace.</td></tr>
+    <tr><td><strong>Admin</strong></td><td>Full access except billing.</td></tr>
+    <tr><td><strong>Analyst</strong></td><td>Read + write on findings &amp; policies; cannot manage the team or delete.</td></tr>
+    <tr><td><strong>Viewer</strong></td><td>Read-only across the product (except secrets like API keys).</td></tr>
+  </table>
+
+  <h3>Authentication &amp; audit</h3>
+  <ul>
+    <li><strong>RS256 JWTs</strong> with short-lived access tokens and rotating refresh tokens.</li>
+    <li>Optional <strong>multi-factor authentication</strong> (TOTP); accounts lock after repeated failed logins.</li>
+    <li>Every privileged action is written to an <strong>immutable audit log</strong> retained for years.</li>
+  </ul>
+
+  <div class="callout blue">
+    <div class="t">Data sovereignty</div>
+    <p>Defaults target the <code>ap-south-1</code> (Mumbai) region, and cross-border transfer policies let you keep regulated data inside India. For complete residency, run the whole platform in your own environment (next section).</p>
+  </div>
+</section>
+
+<!-- ============================= 16 DEPLOYMENT ============================= -->
+<section class="page-break">
+  <div class="sec-head"><span class="sec-num">16</span><h2>Deployment options</h2></div>
+  <p class="lead">Run it our way, or entirely your way.</p>
+
+  <div class="grid2">
+    <div class="card">
+      <h4>Managed SaaS</h4>
+      <p class="small">We host and operate everything. You connect assets and route gateway traffic. Fastest path to value; nothing to maintain.</p>
+    </div>
+    <div class="card">
+      <h4>Private / self-hosted</h4>
+      <p class="small">Deploy the full stack inside your own VPC or cluster for complete data residency and network isolation.</p>
+    </div>
+  </div>
+
+  <h3>Docker Compose (single host / SME)</h3>
+  <p>A complete local or single-server stack — control plane, gateway, workers, dashboard, plus PostgreSQL, Redis, ClickHouse and an Nginx TLS terminator. A setup script generates secrets, runs migrations and seeds an admin user.</p>
+
+  <h3>Kubernetes (Helm)</h3>
+  <p>A production-grade Helm chart deploys each service with sensible defaults:</p>
+  <ul class="small">
+    <li>Separate deployments per service; one worker deployment per scan queue plus a scheduler.</li>
+    <li>Horizontal Pod Autoscaling and PodDisruptionBudgets for the API and gateway.</li>
+    <li>cert-manager TLS, ingress routing (<code>/</code> → dashboard, <code>/api</code> → control plane).</li>
+    <li>External Secrets Operator integration, ServiceMonitors and optional NetworkPolicies.</li>
+  </ul>
+<pre><span class="c">helm</span> upgrade --install datasentinel ./helm/datasentinel \
+  -n datasentinel --create-namespace \
+  -f values.yaml -f values.prod.yaml \
+  --set-string image.tag=&lt;release&gt;</pre>
+
+  <h4>Baseline requirements</h4>
+  <ul class="small">
+    <li>PostgreSQL 16, Redis 7, ClickHouse 24 (managed or self-hosted).</li>
+    <li>A Kubernetes cluster (e.g. Amazon EKS, Mumbai) or a Docker host for Compose.</li>
+    <li>A shared 32-byte master encryption key, kept stable and secret across services.</li>
+  </ul>
+
+  <div class="callout warn">
+    <div class="t">Protect the master key</div>
+    <p>The per-tenant encryption keys are derived from one master key. Keep it identical across services and never rotate it without a migration — rotating it makes previously-encrypted asset credentials unrecoverable.</p>
+  </div>
+</section>
+
+<!-- ============================= 17 BEST PRACTICES ============================= -->
+<section class="page-break">
+  <div class="sec-head"><span class="sec-num">17</span><h2>Best practices</h2></div>
+  <p class="lead">A proven path to a strong, low-friction rollout.</p>
+
+  <ol class="steps">
+    <li><h4>Start in alert-only mode</h4><p>Apply policies in alert-only first. Watch the gateway live feed to understand real traffic before you enforce.</p></li>
+    <li><h4>Connect breadth before depth</h4><p>Register all major data stores early — even a first scan gives you a map of where personal data concentrates.</p></li>
+    <li><h4>Use read-only, least-privilege credentials</h4><p>Every asset connection should use a dedicated read-only principal scoped to only what must be scanned.</p></li>
+    <li><h4>Triage by severity</h4><p>Resolve critical Aadhaar/PAN/financial exposures first; mark false positives to keep the signal clean.</p></li>
+    <li><h4>Route AI traffic through the guard</h4><p>Make the LLM gateway the only sanctioned path to external models, so PII can never bypass it.</p></li>
+    <li><h4>Wire alerts into on-call</h4><p>Send criticals to PagerDuty/Slack so incidents reach a human in minutes, not days.</p></li>
+    <li><h4>Schedule evidence</h4><p>Generate a DPDP/audit report on a regular cadence so you always have current evidence on file.</p></li>
+  </ol>
+</section>
+
+<!-- ============================= 18 FAQ ============================= -->
+<section class="page-break">
+  <div class="sec-head"><span class="sec-num">18</span><h2>Troubleshooting &amp; FAQ</h2></div>
+
+  <h4>A scan finds nothing / fails</h4>
+  <p>Re-run <strong>Test connection</strong>. Confirm the credential is read-only but has <code>SELECT</code>/<code>GetObject</code> on the target schema or bucket, and that network paths/security groups allow the workers to reach the asset.</p>
+
+  <h4>The gateway returns 400 “X-Upstream-URL is required”</h4>
+  <p>Every gateway request must include the <code>X-Upstream-URL</code> header naming the real destination. Add it to your client or egress configuration.</p>
+
+  <h4>The gateway returns 403 “destination not permitted”</h4>
+  <p>The destination resolved to a cloud-metadata or link-local address, which is blocked for SSRF safety. Use a real external/internal hostname.</p>
+
+  <h4>A report link doesn’t download</h4>
+  <p>Report files are stored in object storage. Ensure a reports bucket is configured in your deployment; otherwise the platform records a placeholder it can’t serve.</p>
+
+  <h4>Is my raw data ever stored by DataSentinel?</h4>
+  <p>No. Discovery keeps only metadata and safely-masked samples. The gateway logs hashed/sanitised versions — never raw PII.</p>
+
+  <h4>Will the gateway add noticeable latency?</h4>
+  <p>Overhead is typically a few milliseconds. If policy can’t be loaded, the gateway fails open so legitimate traffic is never dropped.</p>
+
+  <h4>Can we keep all data in India?</h4>
+  <p>Yes — use India-region defaults and cross-border policies, or self-host the entire platform for full residency.</p>
+</section>
+
+<!-- ============================= APPENDICES ============================= -->
+<section class="page-break">
+  <div class="sec-head"><span class="sec-num">A</span><h2>Appendix — Supported PII types</h2></div>
+  <p class="lead">Indian-tuned recognisers with checksum/format validation where applicable.</p>
+  <table>
+    <tr><th>Identifier</th><th>Notes</th><th>Typical severity</th></tr>
+    <tr><td>Aadhaar number</td><td>12-digit, Verhoeff checksum validated</td><td><span class="badge b-crit">Critical</span></td></tr>
+    <tr><td>PAN</td><td>AAAAA9999A format</td><td><span class="badge b-crit">Critical</span></td></tr>
+    <tr><td>Bank account</td><td>Contextual 9–18 digit</td><td><span class="badge b-crit">Critical</span></td></tr>
+    <tr><td>Credit card</td><td>Luhn-validated, major schemes</td><td><span class="badge b-crit">Critical</span></td></tr>
+    <tr><td>GSTIN</td><td>15-char, checksum validated</td><td><span class="badge b-high">High</span></td></tr>
+    <tr><td>Passport</td><td>Indian passport format</td><td><span class="badge b-high">High</span></td></tr>
+    <tr><td>Driving licence</td><td>State + RTO + number</td><td><span class="badge b-high">High</span></td></tr>
+    <tr><td>Voter ID (EPIC)</td><td>3 letters + 7 digits</td><td><span class="badge b-high">High</span></td></tr>
+    <tr><td>UPI / VPA</td><td><code>name@bank</code>, all major handles</td><td><span class="badge b-med">Medium</span></td></tr>
+    <tr><td>IFSC</td><td>4 alpha + 0 + 6 alphanumeric</td><td><span class="badge b-med">Medium</span></td></tr>
+    <tr><td>Phone</td><td>+91 / 10-digit Indian mobile</td><td><span class="badge b-med">Medium</span></td></tr>
+    <tr><td>Email</td><td>RFC-style address</td><td><span class="badge b-med">Medium</span></td></tr>
+    <tr><td>Name / location / date</td><td>Detected via NLP</td><td><span class="badge b-info">Info</span></td></tr>
+    <tr><td>IP / IBAN</td><td>Network &amp; international banking</td><td><span class="badge b-low">Low</span></td></tr>
+  </table>
+
+  <div class="sec-head" style="margin-top:24px;"><span class="sec-num">B</span><h2>Appendix — Enforcement actions</h2></div>
+  <table>
+    <tr><th>Action</th><th>Reversible?</th><th>Best for</th></tr>
+    <tr><td>mask</td><td>No</td><td>Showing partial values (last-4) in UIs/responses.</td></tr>
+    <tr><td>redact</td><td>No</td><td>Removing fields that should never leave.</td></tr>
+    <tr><td>block</td><td>—</td><td>Hard-stopping prohibited transfers.</td></tr>
+    <tr><td>tokenize</td><td>Yes (vault)</td><td>Keeping referential integrity without exposing data.</td></tr>
+    <tr><td>encrypt</td><td>Yes (key)</td><td>Protecting fields while preserving recoverability.</td></tr>
+    <tr><td>hash</td><td>No</td><td>Pseudonymisation &amp; joins on stable identifiers.</td></tr>
+    <tr><td>alert</td><td>—</td><td>Observability without changing traffic.</td></tr>
+  </table>
+</section>
+
+<!-- ============================= GLOSSARY / SUPPORT ============================= -->
+<section class="page-break">
+  <div class="sec-head"><span class="sec-num">C</span><h2>Appendix — Glossary &amp; support</h2></div>
+
+  <h3>Glossary</h3>
+  <table>
+    <tr><th>Term</th><th>Meaning</th></tr>
+    <tr><td>Tenant / workspace</td><td>Your isolated organisation account within DataSentinel.</td></tr>
+    <tr><td>Asset</td><td>A connected data resource (bucket, database) that can be scanned.</td></tr>
+    <tr><td>Finding</td><td>A discovered exposure — PII or a misconfiguration — with severity and location.</td></tr>
+    <tr><td>Policy / rule</td><td>The conditions and actions that govern detected personal data.</td></tr>
+    <tr><td>Gateway event</td><td>A logged record of an enforcement decision on live traffic.</td></tr>
+    <tr><td>Data principal</td><td>The individual whom personal data is about.</td></tr>
+    <tr><td>DSR</td><td>Data-subject (principal) rights request under DPDP.</td></tr>
+    <tr><td>Data flow</td><td>A detected destination that personal data travels to.</td></tr>
+    <tr><td>DPIA</td><td>Data-protection impact assessment.</td></tr>
+  </table>
+
+  <h3>Getting help</h3>
+  <div class="grid2">
+    <div class="card soft">
+      <h4>Support</h4>
+      <p class="small">Reach the DataSentinel team via your account manager or the in-product help menu. Include your tenant name and the relevant <code>request_id</code> from any error for the fastest resolution.</p>
+    </div>
+    <div class="card soft">
+      <h4>Onboarding</h4>
+      <p class="small">Our team will help you connect your first assets, apply the DPDP starter pack, and stand up the gateway in alert-only mode during onboarding.</p>
+    </div>
+  </div>
+
+  <div class="footer-note">
+    <span>DataSentinel — User &amp; Integration Guide • Version 1.0</span>
+    <span>© 2026 DataSentinel • Confidential</span>
+  </div>
+</section>
+
+</body>
+</html>
