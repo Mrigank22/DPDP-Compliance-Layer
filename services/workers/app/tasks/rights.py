@@ -93,13 +93,21 @@ def _search_asset(asset: Asset, tenant_id: str, email: str) -> list[dict]:
     with get_connector(asset.asset_type, asset.id, tenant_id, conn_config) as connector:
         for source in connector.list_sources():
             source_name = source["name"]
-            matches = 0
-            for batch in connector.stream_batches(source_name=source_name, batch_size=500):
-                for record in batch:
-                    for val in record.values():
-                        if isinstance(val, str) and email.lower() in val.lower():
-                            matches += 1
-                            break
+
+            # Prefer native push-down (e.g. SQL WHERE ILIKE) — bounded and fast.
+            native = connector.search_records(source_name, email)
+            if native is not None:
+                matches = native
+            else:
+                # Fallback: stream the source and match in-process (e.g. S3).
+                matches = 0
+                for batch in connector.stream_batches(source_name=source_name, batch_size=500):
+                    for record in batch:
+                        for val in record.values():
+                            if isinstance(val, str) and email.lower() in val.lower():
+                                matches += 1
+                                break
+
             if matches > 0:
                 locations.append({
                     "asset_id": asset.id,

@@ -1,0 +1,37 @@
+apiVersion: v2
+name: datasentinel
+description: |-
+  DataSentinel — India-first, DPDP-native data governance & sovereignty platform.
+  Deploys the Control Plane (API), Enforcement Gateway (inline PII proxy),
+  Scan Workers (Celery), and the Frontend dashboard. PostgreSQL, Redis and
+  ClickHouse are expected to be provisioned externally (managed services
+  recommended for production); see values.yaml for the connection settings.
+type: application
+
+# Chart version — bump on every chart change (SemVer).
+version: 0.1.0
+
+# The application version this chart deploys. Used as the default image tag
+# for every service when a per-service tag is not set.
+appVersion: "1.0.0"
+
+home: https://datasentinel.io
+sources:
+  - https://github.com/datasentinel/datasentinel
+keywords:
+  - dpdp
+  - data-governance
+  - pii
+  - compliance
+  - india
+  - data-sovereignty
+maintainers:
+  - name: DataSentinel Platform Team
+    email: platform@datasentinel.io
+
+# Minimum Kubernetes version. autoscaling/v2, policy/v1 and networking.k8s.io/v1
+# are all stable from 1.23 onward.
+kubeVersion: ">=1.23.0-0"
+
+annotations:
+  category: Security

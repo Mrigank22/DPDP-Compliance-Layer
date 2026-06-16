@@ -19,6 +19,19 @@ import (
 
 var validate = validator.New()
 
+// pkgLogger is a package-level fallback logger used when a request-scoped logger
+// is not present in the gin context. It is wired up from main via SetLogger so
+// that error logging always reaches stdout/stderr and never gets dropped.
+var pkgLogger = zap.NewNop()
+
+// SetLogger installs the application logger as the fallback used by handler
+// error logging. Call this once during startup.
+func SetLogger(l *zap.Logger) {
+	if l != nil {
+		pkgLogger = l
+	}
+}
+
 // ok sends a 200 JSON response.
 func ok(c *gin.Context, data any) {
 	respond(c, http.StatusOK, data, nil, nil)
@@ -105,9 +118,10 @@ func logErrorWithContext(c *gin.Context, message string, err error, status int) 
 	requestID, _ := c.Get(middleware.CtxRequestID)
 	userID, _ := c.Get(middleware.CtxUserID)
 	tenantID, _ := c.Get(middleware.CtxTenantID)
+	ridStr, _ := requestID.(string)
 
 	fields := []zap.Field{
-		zap.String("request_id", requestID.(string)),
+		zap.String("request_id", ridStr),
 		zap.Int("status", status),
 		zap.String("method", c.Request.Method),
 		zap.String("path", c.Request.URL.Path),
@@ -123,16 +137,29 @@ func logErrorWithContext(c *gin.Context, message string, err error, status int) 
 		fields = append(fields, zap.String("tenant_id", fmt.Sprintf("%v", tenantID)))
 	}
 
-	// Use the logger from gin internal context if available, otherwise create a new one
-	if log, ok := c.Get("_logger"); ok {
-		if zapLog, ok := log.(*zap.Logger); ok {
-			zapLog.Error(message, fields...)
+	// For server-side failures, include a verbose error chain to aid debugging.
+	if status >= http.StatusInternalServerError {
+		fields = append(fields, zap.String("error_detail", fmt.Sprintf("%+v", err)))
+	}
+
+	// Prefer the request-scoped logger (set by the Logger middleware); fall back
+	// to the package logger so an error is NEVER silently swallowed.
+	if v, exists := c.Get(middleware.CtxLogger); exists {
+		if zapLog, ok := v.(*zap.Logger); ok {
+			if status >= http.StatusInternalServerError {
+				zapLog.Error(message, fields...)
+			} else {
+				zapLog.Warn(message, fields...)
+			}
 			return
 		}
 	}
 
-	// Fallback: use basic logging (in case zap logger not available)
-	_ = fmt.Errorf("%s: %w", message, err)
+	if status >= http.StatusInternalServerError {
+		pkgLogger.Error(message, fields...)
+	} else {
+		pkgLogger.Warn(message, fields...)
+	}
 }
 
 func appErrorToStatus(code string) int {

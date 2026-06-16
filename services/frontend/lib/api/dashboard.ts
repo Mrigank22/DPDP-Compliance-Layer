@@ -1,17 +1,12 @@
 import { apiClient } from "@/lib/api-client";
-import {
-  DashboardStats,
-  DPDPStatus,
-} from "@/types/api";
+import { DashboardSummary, DPDPStatus, TrendPoint } from "@/types/api";
 
 export const dashboardAPI = {
-  getStats: () =>
-    apiClient.get<DashboardStats>("/dashboard"),
+  getSummary: () => apiClient.get<DashboardSummary>("/dashboard"),
 
-  getDPDPStatus: () =>
-    apiClient.get<DPDPStatus>("/dashboard/dpdp-status"),
+  getDPDPStatus: () => apiClient.get<DPDPStatus>("/dashboard/dpdp-status"),
 
   getTrends: (days = 30) =>
-    apiClient.get("/dashboard/trends", { params: { days } }),
+    apiClient.get<TrendPoint[]>("/dashboard/trends", { params: { days } }),
 };
 

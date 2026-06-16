@@ -1,28 +1,27 @@
 import { apiClient } from "@/lib/api-client";
 import {
   Finding,
-  ListResponse,
   FindingListFilter,
   FindingsSummary,
+  ResolveFindingInput,
+  TrendPoint,
 } from "@/types/api";
 
 export const findingsAPI = {
   list: (filters?: FindingListFilter) =>
-    apiClient.get<ListResponse<Finding>>("/findings", { params: filters }),
+    apiClient.get<Finding[]>("/findings", { params: filters }),
 
-  get: (id: string) =>
-    apiClient.get<Finding>(`/findings/${id}`),
+  get: (id: string) => apiClient.get<Finding>(`/findings/${id}`),
 
-  resolve: (id: string, data: { resolution_note: string }) =>
-    apiClient.post(`/findings/${id}/resolve`, data),
+  resolve: (id: string, data: ResolveFindingInput) =>
+    apiClient.post<Finding>(`/findings/${id}/resolve`, data),
 
-  markFalsePositive: (id: string, data: { resolution_note: string }) =>
-    apiClient.post(`/findings/${id}/false-positive`, data),
+  markFalsePositive: (id: string, data?: ResolveFindingInput) =>
+    apiClient.post<Finding>(`/findings/${id}/false-positive`, data ?? {}),
 
-  summary: () =>
-    apiClient.get<FindingsSummary>("/findings/summary"),
+  summary: () => apiClient.get<FindingsSummary>("/findings/summary"),
 
   trends: (days = 30) =>
-    apiClient.get("/findings/trends", { params: { days } }),
+    apiClient.get<TrendPoint[]>("/findings/trends", { params: { days } }),
 };
 

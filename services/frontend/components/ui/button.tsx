@@ -9,21 +9,26 @@ export interface ButtonProps
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant = "default", size = "default", ...props }, ref) => {
-    const baseClasses = "inline-flex items-center justify-center rounded-lg font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+    const baseClasses =
+      "inline-flex items-center justify-center gap-2 rounded-lg font-medium tracking-tight transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg disabled:opacity-45 disabled:pointer-events-none whitespace-nowrap"
 
     const variants = {
-      default: "bg-blue-600 text-white hover:bg-blue-700",
-      destructive: "bg-red-600 text-white hover:bg-red-700",
-      outline: "border border-slate-600 bg-transparent hover:bg-slate-700",
-      secondary: "bg-slate-700 text-slate-100 hover:bg-slate-600",
-      ghost: "hover:bg-slate-800 text-slate-300"
+      default:
+        "bg-accent text-bg font-semibold hover:bg-accent-dim shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-accent)_35%,transparent),0_8px_24px_-10px_color-mix(in_srgb,var(--color-accent)_60%,transparent)] active:translate-y-px",
+      destructive:
+        "bg-danger text-white font-semibold hover:brightness-110 active:translate-y-px",
+      outline:
+        "border border-border-bright bg-transparent text-foreground hover:bg-surface-2 hover:border-accent/50",
+      secondary:
+        "border border-border bg-surface-2 text-foreground hover:bg-surface-3 hover:border-border-bright",
+      ghost: "text-muted hover:bg-surface-2 hover:text-foreground",
     }
 
     const sizes = {
-      default: "h-10 px-4 py-2",
-      sm: "h-8 px-3 text-sm",
-      lg: "h-12 px-8 text-lg",
-      icon: "h-10 w-10"
+      default: "h-10 px-4 py-2 text-sm",
+      sm: "h-8 px-3 text-xs",
+      lg: "h-12 px-7 text-base",
+      icon: "h-10 w-10",
     }
 
     return (

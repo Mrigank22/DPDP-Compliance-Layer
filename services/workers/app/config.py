@@ -38,6 +38,8 @@ class Settings(BaseSettings):
     aws_access_key_id: str | None  = Field(default=None)
     aws_secret_access_key: str | None = Field(default=None)
     aws_role_arn: str | None       = Field(default=None, description="IAM role to assume for cross-account scans")
+    s3_reports_bucket: str | None  = Field(default=None, description="S3 bucket where generated compliance reports are stored")
+    report_url_ttl_seconds: int    = Field(default=604800, description="Lifetime of presigned report download URLs (max 7 days for SigV4)")
 
     # ---- GCP -----------------------------------------------------------------
     google_application_credentials: str | None = Field(default=None, description="Path to GCP service account JSON")
@@ -83,6 +85,12 @@ class Settings(BaseSettings):
         if not 0.0 <= v <= 1.0:
             raise ValueError("presidio_score_threshold must be between 0.0 and 1.0")
         return v
+
+    @field_validator("report_url_ttl_seconds")
+    @classmethod
+    def _clamp_report_ttl(cls, v: int) -> int:
+        # AWS SigV4 presigned URLs are valid for at most 7 days (604800s).
+        return max(60, min(v, 604800))
 
 
 @lru_cache(maxsize=1)

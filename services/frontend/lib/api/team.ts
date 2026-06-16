@@ -1,16 +1,14 @@
 import { apiClient } from "@/lib/api-client";
-import { User, ListResponse, PaginationParams } from "@/types/api";
+import { User, UpdateUserInput, PaginationParams } from "@/types/api";
 
 export const teamAPI = {
   list: (filters?: PaginationParams) =>
-    apiClient.get<ListResponse<User>>("/team", { params: filters }),
+    apiClient.get<User[]>("/team", { params: filters }),
 
-  get: (id: string) =>
-    apiClient.get<User>(`/team/${id}`),
+  get: (id: string) => apiClient.get<User>(`/team/${id}`),
 
-  update: (id: string, data: { role?: string; is_active?: boolean }) =>
+  update: (id: string, data: UpdateUserInput) =>
     apiClient.patch<User>(`/team/${id}`, data),
 
-  remove: (id: string) =>
-    apiClient.delete(`/team/${id}`),
+  remove: (id: string) => apiClient.delete(`/team/${id}`),
 };

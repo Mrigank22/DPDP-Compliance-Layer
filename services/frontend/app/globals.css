@@ -1,205 +1,213 @@
 @import "tailwindcss";
 
-:root {
-  --background: #0f172a;
-  --foreground: #f1f5f9;
-  --primary: #2563eb;
-  --primary-dark: #1e40af;
-  --primary-light: #3b82f6;
+/*
+ * DataSentinel — "Threat Console" design system
+ * Aesthetic: DefCon / SOC / cyber-sovereignty. Obsidian surfaces, signal-mint
+ * primary, sharp red accents, mono telemetry. Built for Tailwind CSS v4.
+ */
+
+@theme inline {
+  --font-display: var(--font-chakra);
+  --font-sans: var(--font-hanken);
+  --font-mono: var(--font-jetbrains);
+}
+
+@theme {
+  /* ── Core surfaces ─────────────────────────────────────────────── */
+  --color-bg: #070a10;
+  --color-bg-2: #0a0e16;
+  --color-surface: #0e1320;
+  --color-surface-2: #121826;
+  --color-surface-3: #161d2e;
+  --color-border: #1d2536;
+  --color-border-bright: #2a3550;
+  --color-line: #141a28;
+
+  /* ── Text ──────────────────────────────────────────────────────── */
+  --color-foreground: #e6ecf7;
+  --color-muted: #8b98b0;
+  --color-faint: #5a6680;
+
+  /* ── Brand / signal accents ────────────────────────────────────── */
+  --color-accent: #00e5a0; /* signal mint — primary */
+  --color-accent-dim: #06b482;
+  --color-accent-2: #29d8f0; /* electric cyan — secondary */
+  --color-violet: #8b7dff; /* tertiary, used sparingly */
+
+  /* ── Severity / status spectrum ────────────────────────────────── */
+  --color-critical: #ff3b5c;
+  --color-high: #ff7a3d;
+  --color-medium: #ffc23d;
+  --color-low: #3fb6ff;
+  --color-info: #7d8aa3;
+  --color-success: #00e5a0;
+  --color-warning: #ffc23d;
+  --color-danger: #ff3b5c;
+
+  /* ── Radii ─────────────────────────────────────────────────────── */
+  --radius-xl: 14px;
+  --radius-2xl: 20px;
+
+  /* ── Motion tokens ─────────────────────────────────────────────── */
+  --animate-pulse-glow: pulseGlow 2.4s ease-in-out infinite;
+  --animate-flicker: flicker 4s linear infinite;
+}
+
+@keyframes pulseGlow {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-accent) 55%, transparent); }
+  50% { opacity: 0.92; box-shadow: 0 0 24px 2px color-mix(in srgb, var(--color-accent) 25%, transparent); }
+}
+
+@keyframes flicker {
+  0%, 100% { opacity: 1; }
+  48% { opacity: 1; }
+  50% { opacity: 0.78; }
+  52% { opacity: 1; }
+}
+
+@keyframes shimmer {
+  0% { background-position: -1000px 0; }
+  100% { background-position: 1000px 0; }
+}
+
+@keyframes blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0.15; }
 }
 
 @layer base {
-  body {
-    @apply bg-slate-950 text-slate-100 font-sans;
-  }
-
   * {
-    scroll-behavior: smooth;
+    border-color: var(--color-border);
   }
 
   html {
     scroll-behavior: smooth;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background-color: var(--color-bg);
+    color: var(--color-foreground);
+    font-family: var(--font-sans), system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-display), system-ui, sans-serif;
+    letter-spacing: -0.01em;
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--color-accent) 30%, transparent);
+    color: #fff;
+  }
+
+  ::-webkit-scrollbar { width: 9px; height: 9px; }
+  ::-webkit-scrollbar-track { background: var(--color-bg-2); }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-border-bright);
+    border-radius: 999px;
+    border: 2px solid var(--color-bg-2);
+  }
+  ::-webkit-scrollbar-thumb:hover { background: var(--color-accent-dim); }
+
+  input:-webkit-autofill,
+  input:-webkit-autofill:focus {
+    -webkit-text-fill-color: var(--color-foreground);
+    -webkit-box-shadow: 0 0 0 1000px var(--color-surface-2) inset;
+    caret-color: var(--color-foreground);
   }
 }
 
-/* Custom scrollbar */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-
-::-webkit-scrollbar-track {
-  @apply bg-slate-900;
-}
-
-::-webkit-scrollbar-thumb {
-  @apply bg-slate-700 rounded-full;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  @apply bg-slate-600;
-}
-
-/* Animations */
-@keyframes slideInLeft {
-  from {
-    transform: translateX(-100%);
-    opacity: 0;
-  }
-  to {
-    transform: translateX(0);
-    opacity: 1;
-  }
-}
-
-@keyframes slideInRight {
-  from {
-    transform: translateX(100%);
-    opacity: 0;
-  }
-  to {
-    transform: translateX(0);
-    opacity: 1;
-  }
-}
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-@keyframes scaleIn {
-  from {
-    opacity: 0;
-    transform: scale(0.95);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-
-@keyframes shimmer {
-  0% {
-    background-position: -1000px 0;
-  }
-  100% {
-    background-position: 1000px 0;
-  }
-}
-
-@layer components {
-  .animate-slide-in-left {
-    animation: slideInLeft 0.3s ease-out;
+@layer utilities {
+  /* ── Atmosphere ────────────────────────────────────────────────── */
+  .bg-grid {
+    background-image:
+      linear-gradient(to right, color-mix(in srgb, var(--color-border) 60%, transparent) 1px, transparent 1px),
+      linear-gradient(to bottom, color-mix(in srgb, var(--color-border) 60%, transparent) 1px, transparent 1px);
+    background-size: 44px 44px;
   }
 
-  .animate-slide-in-right {
-    animation: slideInRight 0.3s ease-out;
+  .bg-grid-sm {
+    background-image:
+      linear-gradient(to right, color-mix(in srgb, var(--color-border) 45%, transparent) 1px, transparent 1px),
+      linear-gradient(to bottom, color-mix(in srgb, var(--color-border) 45%, transparent) 1px, transparent 1px);
+    background-size: 22px 22px;
   }
 
-  .animate-fade-in {
-    animation: fadeIn 0.3s ease-out;
+  .bg-radial-glow {
+    background:
+      radial-gradient(60% 60% at 50% 0%, color-mix(in srgb, var(--color-accent) 10%, transparent), transparent 70%),
+      radial-gradient(50% 50% at 100% 100%, color-mix(in srgb, var(--color-accent-2) 8%, transparent), transparent 70%);
   }
 
-  .animate-scale-in {
-    animation: scaleIn 0.3s ease-out;
+  .scanlines::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      color-mix(in srgb, var(--color-accent) 4%, transparent) 3px,
+      transparent 4px
+    );
+    opacity: 0.35;
+    mix-blend-mode: overlay;
   }
 
-  .card {
-    @apply bg-slate-800 border border-slate-700 rounded-lg p-6 shadow-lg;
+  .noise::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.04;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   }
 
-  .card-sm {
-    @apply bg-slate-800 border border-slate-700 rounded-lg p-4 shadow-lg;
+  /* ── Panels ────────────────────────────────────────────────────── */
+  .panel {
+    background: linear-gradient(180deg, color-mix(in srgb, var(--color-surface) 92%, #fff 1%), var(--color-surface));
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-xl);
   }
 
-  .btn {
-    @apply px-4 py-2 rounded-lg font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2;
+  .panel-glow {
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--color-accent) 12%, transparent),
+      0 12px 40px -12px color-mix(in srgb, var(--color-accent) 22%, transparent);
   }
 
-  .btn-primary {
-    @apply bg-blue-600 text-white hover:bg-blue-700 active:scale-95;
+  .hairline {
+    background: linear-gradient(90deg, transparent, var(--color-border-bright), transparent);
   }
 
-  .btn-secondary {
-    @apply bg-slate-700 text-slate-100 hover:bg-slate-600;
+  /* ── Glow ──────────────────────────────────────────────────────── */
+  .text-glow { text-shadow: 0 0 18px color-mix(in srgb, currentColor 45%, transparent); }
+
+  .ring-accent-glow {
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent) 40%, transparent),
+                0 0 22px -4px color-mix(in srgb, var(--color-accent) 50%, transparent);
   }
 
-  .btn-ghost {
-    @apply text-slate-300 hover:bg-slate-700 hover:text-slate-100;
-  }
-
-  .btn-danger {
-    @apply bg-red-600 text-white hover:bg-red-700;
-  }
-
-  .badge {
-    @apply inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold;
-  }
-
-  .badge-critical {
-    @apply bg-red-600/20 text-red-400;
-  }
-
-  .badge-high {
-    @apply bg-orange-500/20 text-orange-400;
-  }
-
-  .badge-medium {
-    @apply bg-yellow-500/20 text-yellow-300;
-  }
-
-  .badge-low {
-    @apply bg-blue-400/20 text-blue-300;
-  }
-
-  .badge-info {
-    @apply bg-gray-400/20 text-gray-300;
-  }
-
-  .status-connected {
-    @apply text-emerald-400;
-  }
-
-  .status-disconnected {
-    @apply text-slate-400;
-  }
-
-  .status-scanning {
-    @apply text-blue-400 animate-pulse;
-  }
-
-  .status-error {
-    @apply text-red-500;
-  }
-
-  table {
-    @apply w-full border-collapse;
-  }
-
-  th {
-    @apply bg-slate-900 text-slate-200 font-semibold text-left px-4 py-3 border-b border-slate-700;
-  }
-
-  td {
-    @apply px-4 py-3 border-b border-slate-700;
-  }
-
-  tbody tr {
-    @apply transition-colors hover:bg-slate-800;
-  }
-
-  tbody tr:last-child td {
-    @apply border-b-0;
-  }
-
+  /* ── Skeleton ──────────────────────────────────────────────────── */
   .skeleton {
-    @apply animate-pulse bg-gradient-to-r from-slate-700 via-slate-600 to-slate-700 rounded-lg;
-    animation: shimmer 2s infinite;
+    background: linear-gradient(90deg, var(--color-surface-2) 0%, var(--color-surface-3) 40%, var(--color-surface-2) 80%);
     background-size: 1000px 100%;
+    animation: shimmer 2.2s infinite linear;
   }
+
+  /* ── Animation helpers ─────────────────────────────────────────── */
+  .animate-pulse-glow { animation: var(--animate-pulse-glow); }
+  .animate-flicker { animation: var(--animate-flicker); }
+  .cursor-blink::after {
+    content: "▮";
+    margin-left: 2px;
+    animation: blink 1.1s steps(1) infinite;
+    color: var(--color-accent);
+  }
+
+  .reveal-init { opacity: 0; transform: translateY(14px); }
 }

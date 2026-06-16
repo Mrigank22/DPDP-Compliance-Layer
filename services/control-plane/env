@@ -1,0 +1,74 @@
+# Control-Plane Environment Configuration
+# Copy this to .env and update with your values
+
+# ── Server Configuration ──────────────────────────────────────────────────────
+ENV=development
+PORT=3001
+BASE_URL=http://localhost:3001
+ALLOWED_ORIGINS=http://localhost:3000,http://localhost:8080
+
+# ── PostgreSQL ────────────────────────────────────────────────────────────────
+# Format: postgresql://user:password@host:port/database
+DATABASE_URL=postgresql://datasentinel:datasentinel@localhost:5432/datasentinel?sslmode=disable
+DB_MAX_OPEN_CONNS=25
+DB_MAX_IDLE_CONNS=5
+DB_CONN_LIFETIME=30m
+
+# ── Redis ─────────────────────────────────────────────────────────────────────
+# For rate limiting and caching
+REDIS_URL=redis://localhost:6379/0
+# For worker task queue
+WORKER_REDIS_URL=redis://localhost:6379/1
+
+# ── ClickHouse ────────────────────────────────────────────────────────────────
+# Time-series database for analytics and audit logs
+CLICKHOUSE_URL=localhost:9000
+CLICKHOUSE_USER=default
+CLICKHOUSE_PASSWORD=
+CLICKHOUSE_DATABASE=datasentinel
+
+# ── JWT (RS256) ───────────────────────────────────────────────────────────────
+# Generate with: openssl genrsa -out jwt_private.pem 2048
+# Generate with: openssl rsa -in jwt_private.pem -pubout -out jwt_public.pem
+JWT_PRIVATE_KEY_PATH=./jwt_private.pem
+JWT_PUBLIC_KEY_PATH=./jwt_public.pem
+JWT_ACCESS_TOKEN_TTL=15m
+JWT_REFRESH_TOKEN_TTL=168h
+
+# ── Encryption ────────────────────────────────────────────────────────────────
+# 32-byte hex key (64 characters)
+# Generate: [Convert]::ToHex((1..32 | ForEach-Object { Get-Random -Maximum 256 })) in PowerShell
+MASTER_ENCRYPTION_KEY=cbc4565ddbfe08d7c55bc3bf8c15e2e1f5a06fc9d1e9dc1a5cda50fac4fa64da
+
+# ── Internal service-to-service key ───────────────────────────────────────────
+# Shared with the gateway and workers (their CONTROL_PLANE_API_KEY). Callers
+# presenting this in X-API-Key act as a trusted service scoped to X-Tenant-ID.
+INTERNAL_API_KEY=dev-api-key-12345
+
+# ── Rate Limiting ─────────────────────────────────────────────────────────────
+AUTH_RATE_LIMIT_RPM=60
+API_RATE_LIMIT_RPM=1000
+
+# ── Email Settings (Optional) ─────────────────────────────────────────────────
+# Leave blank to disable email notifications
+SMTP_HOST=
+SMTP_PORT=587
+SMTP_USER=
+SMTP_PASSWORD=
+SMTP_FROM=
+
+# ── AWS S3 (Optional, for reports) ────────────────────────────────────────────
+AWS_REGION=ap-south-1
+AWS_ACCESS_KEY_ID=
+AWS_SECRET_ACCESS_KEY=
+S3_REPORTS_BUCKET=
+
+# ── Observability ─────────────────────────────────────────────────────────────
+LOG_LEVEL=debug
+OTLP_ENDPOINT=
+
+# ── Phone Home (disable for local development) ────────────────────────────────
+PHONE_HOME_DISABLED=true
+PHONE_HOME_URL=https://app.datasentinel.io/api/v1/updates
+DEPLOYMENT_ID=local-dev
+

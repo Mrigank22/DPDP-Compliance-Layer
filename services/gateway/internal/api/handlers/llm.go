@@ -19,7 +19,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -32,6 +31,7 @@ import (
 
 	"github.com/datasentinel/gateway/internal/audit"
 	"github.com/datasentinel/gateway/internal/config"
+	"github.com/datasentinel/gateway/internal/controlplane"
 	"github.com/datasentinel/gateway/internal/engine"
 	"github.com/datasentinel/gateway/internal/policy"
 )
@@ -109,6 +109,10 @@ func (h *LLMHandler) Handle(c *gin.Context) {
 	parsedUpstream, err := url.Parse(upstreamRaw)
 	if err != nil || parsedUpstream.Host == "" {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid X-Upstream-URL"})
+		return
+	}
+	if isBlockedDestination(parsedUpstream) {
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "destination not permitted"})
 		return
 	}
 
@@ -311,6 +315,13 @@ func (h *LLMHandler) Handle(c *gin.Context) {
 		LLMProvider:         string(provider),
 		PolicyID:            polID,
 	})
+
+	if h.proxy.metrics != nil {
+		h.proxy.metrics.RecordRequest(actionTaken, uint64(latencyMs), allPII, actionTaken == "blocked", true)
+	}
+	if len(allPII) > 0 {
+		go h.proxy.cp.RegisterDataFlow(context.Background(), tid, upstreamRaw, "llm", allPII)
+	}
 
 	h.log.Info("llm call processed",
 		zap.String("provider", string(provider)),
@@ -783,22 +794,13 @@ func (h *LLMHandler) sendLLMAlert(ctx context.Context, tenantID string, rule *po
 	if rule != nil {
 		ruleName = rule.Name
 	}
-	apiURL := fmt.Sprintf("%s/api/v1/internal/alerts", h.cfg.ControlPlaneURL)
-	payload := fmt.Sprintf(
-		`{"tenant_id":%q,"alert_type":"policy_violation","severity":"high","title":"PII detected in %s prompt: %s","body":"PII types [%s] were found in a prompt sent to %s (%s). Review and apply LLM guard policies.","related_asset_id":null}`,
-		tenantID, provider, ruleName, strings.Join(piiTypes, ", "), provider, destination,
-	)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, strings.NewReader(payload))
-	if err != nil {
-		return
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-API-Key", h.cfg.ControlPlaneAPIKey)
-	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Do(req)
-	if err == nil {
-		resp.Body.Close()
-	}
+	h.proxy.cp.RaiseAlert(ctx, tenantID, controlplane.AlertInput{
+		AlertType: "policy_violation",
+		Severity:  "high",
+		Title:     "PII detected in " + provider + " prompt: " + ruleName,
+		Body: "PII types [" + strings.Join(piiTypes, ", ") + "] were found in a prompt sent to " +
+			provider + " (" + destination + "). Review and apply LLM guard policies.",
+	})
 }
 
 // ── Audit helper ──────────────────────────────────────────────────────────────

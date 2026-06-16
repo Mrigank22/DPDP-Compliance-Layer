@@ -48,6 +48,12 @@ func NewDetector(threshold float64, workerCount int) *Detector {
 // ScanText scans a raw string for all PII types and returns matches above the
 // confidence threshold. The field name is passed through for logging.
 func (d *Detector) ScanText(text, fieldName string) []DetectionResult {
+	return d.scanText(text, fieldName, nil)
+}
+
+// scanText is the core scanner. When allowed is non-nil, only PII types present
+// in the set are evaluated, so irrelevant regexes are never run.
+func (d *Detector) scanText(text, fieldName string, allowed map[string]bool) []DetectionResult {
 	if len(text) == 0 {
 		return nil
 	}
@@ -61,6 +67,9 @@ func (d *Detector) ScanText(text, fieldName string) []DetectionResult {
 	var results []DetectionResult
 
 	for piiType, pattern := range patterns {
+		if allowed != nil && !allowed[piiType] {
+			continue
+		}
 		matches := pattern.FindAllStringIndex(text, -1)
 		for _, loc := range matches {
 			raw := text[loc[0]:loc[1]]
@@ -84,6 +93,17 @@ func (d *Detector) ScanText(text, fieldName string) []DetectionResult {
 // ScanJSON deeply scans a JSON byte slice, visiting every string value and
 // key name. Returns a flat list of all DetectionResults across the document.
 func (d *Detector) ScanJSON(data []byte) []DetectionResult {
+	return d.scanJSON(data, nil)
+}
+
+// ScanJSONFiltered is ScanJSON limited to the given set of PII types. Only the
+// relevant regexes are evaluated, which is significantly cheaper when a gateway
+// rule targets a small subset of PII types.
+func (d *Detector) ScanJSONFiltered(data []byte, allowed map[string]bool) []DetectionResult {
+	return d.scanJSON(data, allowed)
+}
+
+func (d *Detector) scanJSON(data []byte, allowed map[string]bool) []DetectionResult {
 	if len(data) == 0 {
 		return nil
 	}
@@ -111,11 +131,11 @@ func (d *Detector) ScanJSON(data []byte) []DetectionResult {
 	var root any
 	if err := json.Unmarshal(data, &root); err != nil {
 		// Not valid JSON — fall back to raw text scan
-		return d.ScanText(string(data), "raw_body")
+		return d.scanText(string(data), "raw_body", allowed)
 	}
 
 	var results []DetectionResult
-	d.walkJSON(root, "", &results)
+	d.walkJSON(root, "", &results, allowed)
 	return results
 }
 
@@ -139,7 +159,7 @@ func (d *Detector) ScanJSONField(data []byte, fieldPath string) []DetectionResul
 }
 
 // walkJSON recursively traverses a decoded JSON value, scanning all strings.
-func (d *Detector) walkJSON(node any, path string, results *[]DetectionResult) {
+func (d *Detector) walkJSON(node any, path string, results *[]DetectionResult, allowed map[string]bool) {
 	switch v := node.(type) {
 	case map[string]any:
 		for key, val := range v {
@@ -151,24 +171,24 @@ func (d *Detector) walkJSON(node any, path string, results *[]DetectionResult) {
 
 			// Scan the key itself — sometimes PII appears in key names (rare but real)
 			if len(key) > 8 {
-				for _, r := range d.ScanText(key, childPath+"[key]") {
+				for _, r := range d.scanText(key, childPath+"[key]", allowed) {
 					*results = append(*results, r)
 				}
 			}
-			d.walkJSON(val, childPath, results)
+			d.walkJSON(val, childPath, results, allowed)
 		}
 	case []any:
 		for i, item := range v {
-			d.walkJSON(item, path, results)
+			d.walkJSON(item, path, results, allowed)
 			_ = i
 		}
 	case string:
-		for _, r := range d.ScanText(v, path) {
+		for _, r := range d.scanText(v, path, allowed) {
 			*results = append(*results, r)
 		}
 	case json.Number:
 		// Scan numbers as strings — catches Aadhaar/PAN in numeric fields
-		for _, r := range d.ScanText(v.String(), path) {
+		for _, r := range d.scanText(v.String(), path, allowed) {
 			*results = append(*results, r)
 		}
 	}

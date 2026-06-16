@@ -46,3 +46,8 @@ func ErrConflict(msg string) *AppError {
 func ErrInvalidInput(msg string) *AppError {
 	return &AppError{Code: "invalid_input", Message: msg}
 }
+
+// ErrInternal constructs an internal-error AppError.
+func ErrInternal(msg string) *AppError {
+	return &AppError{Code: "internal_error", Message: msg}
+}

@@ -263,22 +263,42 @@ def _scan_history(db, tenant_id: str, limit: int = 100) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 def _upload(content: dict, report: Report, tenant_id: str) -> tuple[str, int]:
+    """
+    Persist the report JSON to S3 and return a browser-downloadable URL.
+
+    When ``s3_reports_bucket`` is configured the object is uploaded with
+    server-side encryption and a time-limited presigned GET URL is returned so
+    the frontend ``<a href>`` link works directly. When S3 is not configured
+    (e.g. local development) a non-resolvable ``internal://`` placeholder is
+    returned so callers can still see that generation succeeded.
+    """
     data      = json.dumps(content, indent=2, default=str).encode("utf-8")
     file_size = len(data)
     key       = f"reports/{tenant_id}/{report.id}.json"
 
+    bucket = settings.s3_reports_bucket
+    if not bucket:
+        logger.warning("S3_REPORTS_BUCKET not configured — report stored as placeholder only")
+        return f"internal://{key}", file_size
+
     try:
         import boto3
-        boto3.client("s3", region_name=settings.aws_region).put_object(
-            Bucket=settings.s3_reports_bucket,
+
+        s3 = boto3.client("s3", region_name=settings.aws_region)
+        s3.put_object(
+            Bucket=bucket,
             Key=key,
             Body=data,
             ContentType="application/json",
+            ContentDisposition=f'attachment; filename="{report.id}.json"',
             ServerSideEncryption="AES256",
         )
-        url = f"s3://{settings.s3_reports_bucket}/{key}"
+        url = s3.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": bucket, "Key": key},
+            ExpiresIn=settings.report_url_ttl_seconds,
+        )
+        return url, file_size
     except Exception as exc:
         logger.warning("S3 upload failed (%s) — using placeholder URL", exc)
-        url = f"internal://{key}"
-
-    return url, file_size
+        return f"internal://{key}", file_size

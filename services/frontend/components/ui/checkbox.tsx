@@ -2,39 +2,23 @@ import * as React from "react"
 import { Check } from "lucide-react"
 import { cn } from "@/lib/cn"
 
-export interface CheckboxProps
-  extends React.InputHTMLAttributes<HTMLInputElement> {}
+export type CheckboxProps = React.InputHTMLAttributes<HTMLInputElement>
 
 const Checkbox = React.forwardRef<HTMLInputElement, CheckboxProps>(
-  ({ className, ...props }, ref) => {
-    const [checked, setChecked] = React.useState(false)
-
-    return (
-      <div className="relative inline-flex items-center">
-        <input
-          type="checkbox"
-          ref={ref}
-          className="sr-only"
-          checked={checked}
-          onChange={(e) => setChecked(e.target.checked)}
-          {...props}
-        />
-        <div
-          className={cn(
-            "h-5 w-5 rounded border border-slate-600 transition-colors",
-            checked
-              ? "bg-blue-600 border-blue-600"
-              : "bg-slate-700 hover:bg-slate-600"
-          )}
-          onClick={() => setChecked(!checked)}
-        >
-          {checked && (
-            <Check className="h-4 w-4 text-white" strokeWidth={3} />
-          )}
-        </div>
-      </div>
-    )
-  }
+  ({ className, checked, ...props }, ref) => (
+    <label className={cn("relative inline-flex cursor-pointer items-center", className)}>
+      <input
+        type="checkbox"
+        ref={ref}
+        className="peer sr-only"
+        checked={checked}
+        {...props}
+      />
+      <span className="flex h-5 w-5 items-center justify-center rounded border border-border bg-surface-2 transition-colors peer-checked:border-accent peer-checked:bg-accent">
+        {checked && <Check className="h-3.5 w-3.5 text-bg" strokeWidth={3} />}
+      </span>
+    </label>
+  )
 )
 Checkbox.displayName = "Checkbox"
 

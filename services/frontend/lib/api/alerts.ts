@@ -1,24 +1,20 @@
 import { apiClient } from "@/lib/api-client";
-import {
-  Alert,
-  ListResponse,
-  AlertListFilter,
-} from "@/types/api";
+import { Alert, AlertListFilter } from "@/types/api";
 
 export const alertsAPI = {
   list: (filters?: AlertListFilter) =>
-    apiClient.get<ListResponse<Alert>>("/alerts", { params: filters }),
+    apiClient.get<Alert[]>("/alerts", { params: filters }),
 
-  get: (id: string) =>
-    apiClient.get<Alert>(`/alerts/${id}`),
+  get: (id: string) => apiClient.get<Alert>(`/alerts/${id}`),
 
   unread: () =>
-    apiClient.get<ListResponse<Alert>>("/alerts/unread"),
+    apiClient.get<{ alerts: Alert[]; count: number }>("/alerts/unread"),
 
-  acknowledge: (data: { alert_ids: string[] }) =>
-    apiClient.post("/alerts/acknowledge", data),
+  acknowledge: (alertIds: string[]) =>
+    apiClient.post("/alerts/acknowledge", { alert_ids: alertIds }),
 
-  acknowledgeAll: () =>
-    apiClient.post("/alerts/acknowledge-all"),
+  acknowledgeAll: () => apiClient.post("/alerts/acknowledge-all"),
+
+  delete: (id: string) => apiClient.delete(`/alerts/${id}`),
 };
 

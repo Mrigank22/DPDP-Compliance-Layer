@@ -30,6 +30,9 @@ func main() {
 
 	// ── Logger ───────────────────────────────────────────────────────────────
 	log := buildLogger(cfg)
+	// Install the logger as the fallback used by API handler error logging so
+	// that handler-level errors are always written out with full context.
+	v1.SetLogger(log)
 	defer func(log *zap.Logger) {
 		err := log.Sync()
 		if err != nil {

@@ -1,0 +1,515 @@
+# ==============================================================================
+# DataSentinel — default values
+#
+# This chart deploys the four DataSentinel services:
+#   * control-plane  (Go API, port 3001)
+#   * gateway        (Go inline PII proxy, ports 8080/8443, /metrics on 8080)
+#   * workers        (Python/Celery — one Deployment per queue + beat)
+#   * frontend       (Next.js dashboard, port 3000)
+#
+# PostgreSQL, Redis and ClickHouse are NOT deployed by this chart. Point the
+# `database`, `redis` and `clickhouse` sections at managed services (AWS RDS,
+# ElastiCache, ClickHouse Cloud) or your own in-cluster instances. For local
+# development use services/workers/docker-compose.yml instead.
+# ==============================================================================
+
+# -- Override the chart name (rarely needed).
+nameOverride: ""
+# -- Override the fully-qualified release name (rarely needed).
+fullnameOverride: ""
+
+# -- Labels added to every rendered object.
+commonLabels: {}
+# -- Annotations added to every rendered object.
+commonAnnotations: {}
+
+# ------------------------------------------------------------------------------
+# Container images
+# Full image = "{registry}/{service.image.repository}:{tag|appVersion}"
+# ------------------------------------------------------------------------------
+image:
+  # -- Default registry/namespace for all service images.
+  registry: ghcr.io/datasentinel
+  # -- Default tag for all services. Empty => Chart.appVersion.
+  tag: ""
+  # -- Pull policy for all containers.
+  pullPolicy: IfNotPresent
+  # -- Names of image pull secrets (for private registries).
+  pullSecrets: []
+  #  - regcred
+
+# ------------------------------------------------------------------------------
+# ServiceAccount
+# Attach an IAM role via IRSA (EKS) here so workers/control-plane can reach S3.
+# ------------------------------------------------------------------------------
+serviceAccount:
+  # -- Create a ServiceAccount for the workloads.
+  create: true
+  # -- Name to use. Empty => generated from the release name.
+  name: ""
+  # -- Annotations (e.g. eks.amazonaws.com/role-arn for IRSA).
+  annotations: {}
+  #  eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/datasentinel
+  automountServiceAccountToken: true
+
+# ------------------------------------------------------------------------------
+# External data stores (connection settings)
+# Credentials here are written into Kubernetes Secrets. For production prefer
+# `externalSecrets` or `secrets.existingSecret*` so plaintext never lives in
+# values. Passwords with URL-reserved characters must be URL-encoded.
+# ------------------------------------------------------------------------------
+database:
+  # -- Full DSN override. If set, host/port/user/password/name/sslMode are ignored.
+  url: ""
+  host: postgres.datasentinel.svc.cluster.local
+  port: 5432
+  name: datasentinel
+  user: datasentinel
+  password: "change-me-postgres"
+  # -- sslmode: disable | require | verify-ca | verify-full
+  sslMode: require
+  # -- Go connection-pool tuning (control-plane).
+  maxOpenConns: 25
+  maxIdleConns: 5
+  connLifetime: 30m
+
+redis:
+  host: redis.datasentinel.svc.cluster.local
+  port: 6379
+  # -- Optional Redis AUTH password.
+  password: ""
+  # -- Logical DB indexes per service (keeps namespaces isolated on one Redis).
+  controlPlaneDB: 0   # control-plane cache / rate limiting
+  workerQueueDB: 1    # control-plane -> worker task queue (Celery broker)
+  gatewayDB: 2        # gateway policy cache + tokenization vault
+
+clickhouse:
+  host: clickhouse.datasentinel.svc.cluster.local
+  # -- Native TCP port (used by control-plane).
+  nativePort: 9000
+  # -- HTTP port (used by gateway + workers).
+  httpPort: 8123
+  # -- Full endpoint overrides (optional).
+  httpUrl: ""
+  nativeUrl: ""
+  database: datasentinel
+  user: default
+  password: ""
+
+# ------------------------------------------------------------------------------
+# Shared application secrets
+# ------------------------------------------------------------------------------
+secrets:
+  # -- Create the per-service Secret objects from the values below.
+  #    Set false when using `externalSecrets` or pre-created Secrets.
+  create: true
+  # -- 32-byte hex (64 chars). MUST be identical across all services. Generate:
+  #    openssl rand -hex 32
+  masterEncryptionKey: "cbc4565ddbfe08d7c55bc3bf8c15e2e1f5a06fc9d1e9dc1a5cda50fac4fa64da"
+  # -- Internal service-to-service key. Control-plane INTERNAL_API_KEY ==
+  #    gateway/workers CONTROL_PLANE_API_KEY. Generate: openssl rand -hex 24
+  internalApiKey: "dev-api-key-12345"
+
+# ------------------------------------------------------------------------------
+# JWT signing material (RS256). The control-plane signs with the private key;
+# the gateway optionally verifies with the public key.
+# Generate:
+#   openssl genrsa -out jwt_private.pem 2048
+#   openssl rsa -in jwt_private.pem -pubout -out jwt_public.pem
+# ------------------------------------------------------------------------------
+jwt:
+  # -- Create a Secret holding the PEM keys from the inline values below.
+  create: true
+  # -- Use a pre-existing Secret instead (keys: jwt_private.pem, jwt_public.pem).
+  existingSecret: ""
+  accessTokenTTL: 15m
+  refreshTokenTTL: 168h
+  # -- PEM contents. Leave empty in committed values; supply via -f secrets.yaml
+  #    or --set-file jwt.privateKey=jwt_private.pem.
+  privateKey: ""
+  publicKey: ""
+
+# ------------------------------------------------------------------------------
+# External Secrets Operator (https://external-secrets.io) integration.
+# When enabled, an ExternalSecret per service is created and `secrets.create`
+# should be false. The synced Secret keeps the same name the Deployments expect.
+# ------------------------------------------------------------------------------
+externalSecrets:
+  enabled: false
+  # -- Name of the ClusterSecretStore / SecretStore.
+  secretStoreRef:
+    name: aws-secretsmanager
+    kind: ClusterSecretStore
+  refreshInterval: 1h
+  # -- Remote secret keys. Each must contain the env-var keys that service needs
+  #    (DATABASE_URL, REDIS_URL, MASTER_ENCRYPTION_KEY, CLICKHOUSE_PASSWORD,
+  #    CONTROL_PLANE_API_KEY/INTERNAL_API_KEY, cloud creds, …).
+  controlPlaneRemoteKey: datasentinel/control-plane
+  gatewayRemoteKey: datasentinel/gateway
+  workersRemoteKey: datasentinel/workers
+  # -- Optional: remote key holding jwt_private.pem / jwt_public.pem.
+  jwtRemoteKey: ""
+
+# ==============================================================================
+# CONTROL PLANE
+# ==============================================================================
+controlPlane:
+  enabled: true
+  replicaCount: 2
+  image:
+    registry: ""        # falls back to global image.registry
+    repository: control-plane
+    tag: ""             # falls back to global image.tag / appVersion
+  # -- Container/Service port.
+  port: 3001
+  # -- Public base URL of the API (used in emails, links).
+  baseUrl: https://app.datasentinel.io
+  # -- CORS allow-list (the dashboard origin must be present).
+  allowedOrigins: https://app.datasentinel.io
+  logLevel: info
+  env: production
+  rateLimit:
+    authRpm: 60
+    apiRpm: 1000
+  # -- SMTP (optional). Leave host empty to disable email.
+  smtp:
+    host: ""
+    port: 587
+    user: ""
+    password: ""
+    from: DataSentinel <no-reply@datasentinel.io>
+  # -- AWS settings for report storage (optional).
+  aws:
+    region: ap-south-1
+    accessKeyId: ""
+    secretAccessKey: ""
+    s3ReportsBucket: ""
+  # -- OpenTelemetry OTLP endpoint (optional).
+  otlpEndpoint: ""
+  # -- Phone-home (private deployments). Disabled by default.
+  phoneHome:
+    disabled: true
+    url: https://app.datasentinel.io/api/v1/updates
+    deploymentId: ""
+  service:
+    type: ClusterIP
+    port: 3001
+    annotations: {}
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+  # -- Extra env vars (list of name/value or valueFrom).
+  extraEnv: []
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+  podLabels: {}
+
+# ==============================================================================
+# ENFORCEMENT GATEWAY
+# ==============================================================================
+gateway:
+  enabled: true
+  replicaCount: 2
+  image:
+    registry: ""
+    repository: gateway
+    tag: ""
+  httpPort: 8080
+  httpsPort: 8443
+  # -- Prometheus metrics are served on the HTTP port at /metrics.
+  logLevel: info
+  env: production
+  serviceName: datasentinel-gateway
+  proxy:
+    dialTimeout: 5s
+    readTimeout: 30s
+    writeTimeout: 30s
+    maxBodyBytes: 10485760
+  detection:
+    scoreThreshold: "0.7"
+    maxWorkers: 8
+  # -- Verify inbound Bearer JWTs using the control-plane RS256 public key.
+  jwtVerification:
+    enabled: true
+  # -- TLS termination at the gateway (8443). Usually TLS is terminated at the
+  #    ingress; enable this only for direct TLS to the gateway pod.
+  tls:
+    enabled: false
+    existingSecret: ""   # kubernetes.io/tls secret (tls.crt, tls.key)
+  service:
+    type: ClusterIP
+    httpPort: 8080
+    httpsPort: 8443
+    annotations: {}
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: "2"
+      memory: 512Mi
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+  extraEnv: []
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+  podLabels: {}
+
+# ==============================================================================
+# SCAN WORKERS (Celery)
+# One Deployment is created per queue, plus the beat scheduler.
+# ==============================================================================
+workers:
+  enabled: true
+  image:
+    registry: ""
+    repository: workers
+    tag: ""
+  logLevel: info
+  environment: production
+  serviceName: datasentinel-workers
+  # -- PII detection / scan tuning.
+  presidioScoreThreshold: "0.7"
+  spacyModel: en_core_web_lg
+  maxSampleSize: 1000
+  scanBatchSize: 500
+  s3MaxObjectsPerScan: 10000
+  reportUrlTtlSeconds: 604800
+  debugSql: false
+  # -- Cloud credentials for scanning + report upload (optional).
+  aws:
+    region: ap-south-1
+    accessKeyId: ""
+    secretAccessKey: ""
+    roleArn: ""
+    s3ReportsBucket: ""
+  gcp:
+    # -- Mounted credentials JSON (provide via secret) + the in-container path.
+    credentialsSecret: ""        # name of a Secret with key "credentials.json"
+    credentialsPath: /var/secrets/gcp/credentials.json
+  azure:
+    storageConnectionString: ""
+  # -- Celery liveness probe via `celery inspect ping` (broker round-trip).
+  probes:
+    enabled: true
+    initialDelaySeconds: 30
+    periodSeconds: 60
+    timeoutSeconds: 15
+    failureThreshold: 3
+  # -- Default resources applied to each worker Deployment (override per-queue).
+  resources:
+    requests:
+      cpu: 250m
+      memory: 1Gi      # spaCy en_core_web_lg (~600MB) needs headroom
+    limits:
+      cpu: "2"
+      memory: 2Gi
+  # -- One Deployment per queue. concurrency = Celery --concurrency.
+  queues:
+    - name: discovery        # also serves posture.* tasks
+      replicaCount: 1
+      concurrency: 4
+    - name: classification
+      replicaCount: 1
+      concurrency: 4
+    - name: rights
+      replicaCount: 1
+      concurrency: 2
+    - name: reports
+      replicaCount: 1
+      concurrency: 1
+    - name: notifications
+      replicaCount: 1
+      concurrency: 2
+  # -- Beat periodic scheduler (run exactly one replica).
+  beat:
+    enabled: true
+    resources:
+      requests:
+        cpu: 50m
+        memory: 256Mi
+      limits:
+        cpu: 250m
+        memory: 512Mi
+  # -- Flower monitoring UI (optional).
+  flower:
+    enabled: false
+    port: 5555
+    service:
+      type: ClusterIP
+      port: 5555
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 250m
+        memory: 256Mi
+  extraEnv: []
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+  podLabels: {}
+
+# ==============================================================================
+# FRONTEND (Next.js dashboard)
+# Note: NEXT_PUBLIC_* values are baked at image build time. Build the image with
+# the correct apiUrl, or override at deploy time only if your image reads it at
+# runtime. A frontend Dockerfile is required (none ships in the repo yet).
+# ==============================================================================
+frontend:
+  enabled: true
+  replicaCount: 2
+  image:
+    registry: ""
+    repository: frontend
+    tag: ""
+  port: 3000
+  appName: DataSentinel
+  # -- Browser-facing API URL (must be reachable from the user's browser).
+  apiUrl: https://app.datasentinel.io/api/v1
+  apiTimeout: 30000
+  enableAnalytics: true
+  enableSentry: false
+  sentryDsn: ""
+  service:
+    type: ClusterIP
+    port: 3000
+    annotations: {}
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 75
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+  extraEnv: []
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+  podLabels: {}
+
+# ==============================================================================
+# INGRESS
+# Dashboard host routes "/" -> frontend and "/api" -> control-plane.
+# The gateway and flower get their own optional hosts.
+# ==============================================================================
+ingress:
+  enabled: true
+  className: nginx
+  # -- cert-manager: issue TLS automatically for the hosts below.
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+  # -- Dashboard + API.
+  dashboard:
+    host: app.datasentinel.io
+    # -- Path that routes to the control-plane API.
+    apiPath: /api
+    apiPathType: Prefix
+    rootPath: /
+    rootPathType: Prefix
+  tls:
+    enabled: true
+    secretName: datasentinel-dashboard-tls
+  # -- Expose the gateway on its own host (it is an inline/egress proxy).
+  gateway:
+    enabled: false
+    host: gateway.datasentinel.io
+    tls:
+      enabled: true
+      secretName: datasentinel-gateway-tls
+    annotations:
+      nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+  # -- Expose Flower (protect it — add auth annotations).
+  flower:
+    enabled: false
+    host: flower.datasentinel.io
+    tls:
+      enabled: true
+      secretName: datasentinel-flower-tls
+    annotations: {}
+
+# ==============================================================================
+# Observability — Prometheus Operator ServiceMonitor
+# Only the gateway currently exposes /metrics (on its HTTP port).
+# ==============================================================================
+metrics:
+  serviceMonitor:
+    enabled: false
+    # -- Namespace of your Prometheus Operator (empty => release namespace).
+    namespace: ""
+    interval: 30s
+    scrapeTimeout: 10s
+    labels: {}
+    # -- Scrape the control-plane too (only if /metrics is implemented there).
+    controlPlane: false
+
+# ==============================================================================
+# NetworkPolicy (default-deny + explicit allows). Off by default.
+# ==============================================================================
+networkPolicy:
+  enabled: false
+  # -- Allow DNS egress (kube-dns). Strongly recommended when enabling.
+  allowDNS: true
+  # -- Namespace selector identifying your ingress controller (for allowing
+  #    external traffic into frontend/control-plane/gateway).
+  ingressNamespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: ingress-nginx
+
+# ==============================================================================
+# Pod-level security defaults (applied to every Deployment).
+# Images already run as non-root uid 10001.
+# ==============================================================================
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  capabilities:
+    drop:
+      - ALL
+
+# -- Default topology/anti-affinity spread for HA (applied when affinity unset).
+defaultPodAntiAffinity: soft   # soft | hard | ""

@@ -1,38 +1,36 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { Radar } from "lucide-react";
 import { useAuthStore } from "@/lib/store/auth.store";
 
 export default function Home() {
   const router = useRouter();
-  const { isAuthenticated, token, loadFromStorage } = useAuthStore();
-  const [isHydrated, setIsHydrated] = useState(false);
+  const { isAuthenticated, hydrated, loadFromStorage } = useAuthStore();
 
-  // Load auth from storage on mount
   useEffect(() => {
-    // Restore auth state from cookies and localStorage
     loadFromStorage();
-    setIsHydrated(true);
   }, [loadFromStorage]);
 
-  // Redirect based on auth state after hydration
   useEffect(() => {
-    if (!isHydrated) return;
+    if (!hydrated) return;
+    router.replace(isAuthenticated ? "/dashboard" : "/login");
+  }, [hydrated, isAuthenticated, router]);
 
-    if (isAuthenticated && token) {
-      router.push("/dashboard");
-    } else {
-      router.push("/login");
-    }
-  }, [isHydrated, isAuthenticated, token, router]);
-
-  // Show loading state while determining auth
-  if (!isHydrated) {
-    return null;
-  }
-
-  return null;
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-bg">
+      <div className="pointer-events-none fixed inset-0 bg-grid opacity-40" />
+      <div className="relative flex flex-col items-center gap-4">
+        <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-accent/30 bg-accent/10">
+          <Radar className="h-7 w-7 animate-pulse text-accent" />
+        </div>
+        <p className="font-mono text-xs uppercase tracking-[0.3em] text-muted">
+          Initializing console…
+        </p>
+      </div>
+    </div>
+  );
 }
 
 

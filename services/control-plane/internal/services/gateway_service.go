@@ -7,9 +7,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/uptrace/bun"
+	"github.com/uptrace/bun/dialect/pgdialect"
 	"go.uber.org/zap"
 
 	"github.com/datasentinel/control-plane/internal/db"
@@ -182,30 +182,92 @@ func (s *GatewayService) ApproveDataFlow(ctx context.Context, id, tenantID, user
 	return flow, nil
 }
 
+// UpsertDataFlow records (or refreshes) a detected egress data flow. Called by
+// the enforcement gateway when PII is observed leaving the estate. It dedups on
+// (tenant_id, destination_url): an existing flow has its event count and last
+// seen time advanced and any newly-observed PII types merged in.
+func (s *GatewayService) UpsertDataFlow(ctx context.Context, tenantID, destURL, destType string, piiTypes []string) (*models.DataFlow, error) {
+	if destURL == "" {
+		return nil, ErrInvalidInput("destination_url is required")
+	}
+	if err := db.SetTenantContext(ctx, s.pg, tenantID); err != nil {
+		return nil, err
+	}
+
+	existing := &models.DataFlow{}
+	err := s.pg.NewSelect().Model(existing).
+		Where("tenant_id = ? AND destination_url = ?", tenantID, destURL).
+		Limit(1).Scan(ctx)
+	if err == nil {
+		merged := mergeStrings(existing.PIITypesInvolved, piiTypes)
+		_, uerr := s.pg.NewUpdate().Model((*models.DataFlow)(nil)).
+			Set("event_count = event_count + 1").
+			Set("last_seen_at = now()").
+			Set("pii_types_involved = ?", pgdialect.Array(merged)).
+			Where("id = ?", existing.ID).
+			Exec(ctx)
+		if uerr != nil {
+			return nil, uerr
+		}
+		existing.EventCount++
+		existing.PIITypesInvolved = merged
+		return existing, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+
+	flow := &models.DataFlow{
+		TenantID:         tenantID,
+		DestinationURL:   destURL,
+		DestinationType:  destType,
+		PIITypesInvolved: piiTypes,
+		EventCount:       1,
+	}
+	if _, ierr := s.pg.NewInsert().Model(flow).Exec(ctx); ierr != nil {
+		return nil, fmt.Errorf("insert data flow: %w", ierr)
+	}
+	return flow, nil
+}
+
+// mergeStrings returns the union of two string slices, preserving order.
+func mergeStrings(a, b []string) []string {
+	seen := make(map[string]bool, len(a)+len(b))
+	out := make([]string, 0, len(a)+len(b))
+	for _, s := range append(append([]string{}, a...), b...) {
+		if s == "" || seen[s] {
+			continue
+		}
+		seen[s] = true
+		out = append(out, s)
+	}
+	return out
+}
+
 // --- Gateway Events (ClickHouse) ---------------------------------------------
 
+// ListEvents returns paginated gateway interception events for a tenant.
+func (s *GatewayService) ListEvents(ctx context.Context, tenantID string, filter *models.GatewayEventFilter) ([]*models.GatewayEvent, int64, error) {
+	return s.ch.QueryGatewayEvents(ctx, tenantID, filter)
+}
+
 // GetStats returns aggregate gateway statistics for a tenant over the last N hours.
-func (s *GatewayService) GetStats(ctx context.Context, tenantID string, hours int) (map[string]any, error) {
+func (s *GatewayService) GetStats(ctx context.Context, tenantID string, hours int) (*models.GatewayStatsResponse, error) {
 	if hours < 1 || hours > 168 {
 		hours = 24
 	}
-	cutoff := time.Now().Add(-time.Duration(hours) * time.Hour)
-
-	type statRow struct {
-		ActionTaken string `ch:"action_taken"`
-		Count       uint64 `ch:"count"`
-	}
-
-	// This would query ClickHouse gateway_events table directly.
-	// For brevity, returning a structured mock that real ClickHouse queries would populate.
-	stats := map[string]any{
-		"period_hours":    hours,
-		"since":           cutoff,
-		"total_requests":  0,
-		"by_action":       map[string]uint64{},
-		"top_pii_types":   []string{},
-		"block_rate_pct":  0.0,
-		"avg_latency_ms":  0.0,
+	stats, err := s.ch.QueryGatewayStats(ctx, tenantID, hours)
+	if err != nil {
+		// Degrade gracefully: if ClickHouse is unavailable, return an empty,
+		// well-formed stats object so the dashboard still renders.
+		s.log.Warn("gateway stats query failed; returning empty stats",
+			zap.String("tenant_id", tenantID), zap.Error(err))
+		return &models.GatewayStatsResponse{
+			PeriodHours: hours,
+			ByAction:    map[string]int64{},
+			ByPIIType:   map[string]int64{},
+			Timeline:    []models.GatewayTimeBin{},
+		}, nil
 	}
 	return stats, nil
 }

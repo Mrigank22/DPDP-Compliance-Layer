@@ -3,7 +3,9 @@
 package middleware
 
 import (
+	"context"
 	"crypto/sha256"
+	"crypto/subtle"
 	"database/sql"
 	"encoding/hex"
 	"net/http"
@@ -21,19 +23,34 @@ import (
 
 // Context key constants for values stored in gin.Context.
 const (
-	CtxUserID   = "user_id"
-	CtxTenantID = "tenant_id"
-	CtxUserRole = "user_role"
-	CtxUserObj  = "user_obj"
+	CtxUserID    = "user_id"
+	CtxTenantID  = "tenant_id"
+	CtxUserRole  = "user_role"
+	CtxUserObj   = "user_obj"
 	CtxRequestID = "request_id"
+	// CtxLogger holds the request-scoped *zap.Logger so that handlers and
+	// helpers can emit structured, correlated error logs.
+	CtxLogger = "logger"
 )
 
+// ServiceUserID is the sentinel user ID attributed to trusted internal service
+// callers (gateway, workers) that authenticate with the internal API key.
+const ServiceUserID = "00000000-0000-0000-0000-000000000002"
+
 // RequireAuth is the primary authentication middleware.
-// It accepts either a Bearer JWT or an X-API-Key header.
-func RequireAuth(authSvc *services.AuthService, pg *bun.DB, log *zap.Logger) gin.HandlerFunc {
+// It accepts a Bearer JWT, a tenant API key, or the internal service key.
+func RequireAuth(authSvc *services.AuthService, pg *bun.DB, internalKey string, log *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Try X-API-Key header first (for machine callers)
 		if apiKey := c.GetHeader("X-API-Key"); apiKey != "" {
+			// Internal service-to-service key: trusted identity scoped to the
+			// tenant named in X-Tenant-ID. Used by the gateway and workers.
+			if internalKey != "" && subtleConstEq(apiKey, internalKey) {
+				if authenticateService(c, pg) {
+					c.Next()
+				}
+				return
+			}
 			if authenticated := authenticateAPIKey(c, apiKey, pg, log); authenticated {
 				c.Next()
 				return
@@ -88,6 +105,46 @@ func RequireAuth(authSvc *services.AuthService, pg *bun.DB, log *zap.Logger) gin
 	}
 }
 
+// authenticateService establishes a trusted internal service identity from the
+// X-Tenant-ID header. Caller must already be verified to hold the internal key.
+func authenticateService(c *gin.Context, pg *bun.DB) bool {
+	tid := strings.TrimSpace(c.GetHeader("X-Tenant-ID"))
+	if tid == "" {
+		abortWithCode(c, http.StatusUnauthorized, models.ErrCodeUnauthorized,
+			"X-Tenant-ID header is required with the internal service key")
+		return false
+	}
+	_ = db.SetTenantContext(c.Request.Context(), pg, tid)
+	c.Set(CtxUserID, ServiceUserID)
+	c.Set(CtxTenantID, tid)
+	c.Set(CtxUserRole, models.RoleAdmin)
+	c.Set("is_service", true)
+	return true
+}
+
+// RequireServiceAuth authenticates ONLY the internal service key (gateway,
+// workers). User JWTs and tenant API keys are rejected. Tenant scope comes from
+// the X-Tenant-ID header. Used to guard /internal routes.
+func RequireServiceAuth(internalKey string, pg *bun.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		key := c.GetHeader("X-API-Key")
+		if internalKey == "" || key == "" || !subtleConstEq(key, internalKey) {
+			abortWithCode(c, http.StatusForbidden, models.ErrCodeForbidden,
+				"internal service authentication required")
+			return
+		}
+		if !authenticateService(c, pg) {
+			return
+		}
+		c.Next()
+	}
+}
+
+// subtleConstEq compares two strings in constant time to avoid timing leaks.
+func subtleConstEq(a, b string) bool {
+	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
+}
+
 func authenticateAPIKey(c *gin.Context, rawKey string, pg *bun.DB, log *zap.Logger) bool {
 	hash := sha256Token(rawKey)
 
@@ -110,20 +167,30 @@ func authenticateAPIKey(c *gin.Context, rawKey string, pg *bun.DB, log *zap.Logg
 		return false
 	}
 
-	// Non-blocking last-used update
+	// Non-blocking last-used update. Uses a background context so it survives the
+	// end of the request, and logs failures instead of silently swallowing them.
+	keyID := apiKey.ID
 	go func() {
-		now := time.Now()
-		_, _ = pg.NewUpdate().Model(apiKey).
-			Set("last_used_at = ?", now).
-			Where("id = ?", apiKey.ID).
-			Exec(c.Request.Context())
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if _, err := pg.NewUpdate().Model((*models.APIKey)(nil)).
+			Set("last_used_at = ?", time.Now()).
+			Where("id = ?", keyID).
+			Exec(ctx); err != nil {
+			log.Warn("api key last_used_at update failed",
+				zap.String("api_key_id", keyID), zap.Error(err))
+		}
 	}()
 
 	// Load the owning user
 	user := &models.User{}
-	_ = pg.NewSelect().Model(user).
+	if err := pg.NewSelect().Model(user).
 		Where("id = ? AND is_active = true", apiKey.UserID).
-		Scan(c.Request.Context())
+		Scan(c.Request.Context()); err != nil {
+		log.Warn("api key owner lookup failed",
+			zap.String("api_key_id", apiKey.ID),
+			zap.String("user_id", apiKey.UserID), zap.Error(err))
+	}
 
 	_ = db.SetTenantContext(c.Request.Context(), pg, apiKey.TenantID)
 
@@ -206,8 +273,9 @@ func abortForbidden(c *gin.Context, msg string) {
 
 func abortWithCode(c *gin.Context, status int, code, msg string) {
 	requestID, _ := c.Get(CtxRequestID)
+	ridStr, _ := requestID.(string)
 	c.AbortWithStatusJSON(status, models.APIResponse{
-		RequestID: requestID.(string),
+		RequestID: ridStr,
 		Error: &models.APIError{
 			Code:    code,
 			Message: msg,
@@ -218,13 +286,15 @@ func abortWithCode(c *gin.Context, status int, code, msg string) {
 // GetUserID extracts the current user ID from context.
 func GetUserID(c *gin.Context) string {
 	v, _ := c.Get(CtxUserID)
-	return v.(string)
+	s, _ := v.(string)
+	return s
 }
 
 // GetTenantID extracts the current tenant ID from context.
 func GetTenantID(c *gin.Context) string {
 	v, _ := c.Get(CtxTenantID)
-	return v.(string)
+	s, _ := v.(string)
+	return s
 }
 
 // GetUser extracts the full User object from context.

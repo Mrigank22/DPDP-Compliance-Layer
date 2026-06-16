@@ -42,6 +42,10 @@ type Config struct {
 	// Encryption
 	MasterEncryptionKey string `mapstructure:"MASTER_ENCRYPTION_KEY"`
 
+	// JWT verification (RS256 public key shared with the control plane). When
+	// empty, JWT auth is disabled and callers must use X-API-Key.
+	JWTPublicKeyPath string `mapstructure:"JWT_PUBLIC_KEY_PATH"`
+
 	// Proxy behaviour
 	UpstreamDialTimeout  time.Duration `mapstructure:"UPSTREAM_DIAL_TIMEOUT"`
 	UpstreamReadTimeout  time.Duration `mapstructure:"UPSTREAM_READ_TIMEOUT"`

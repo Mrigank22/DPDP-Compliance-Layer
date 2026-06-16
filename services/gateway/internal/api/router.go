@@ -3,10 +3,9 @@
 package api
 
 import (
-	"encoding/base64"
-	"encoding/json"
-	"fmt"
+	"crypto/subtle"
 	"net/http"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -16,8 +15,11 @@ import (
 
 	"github.com/datasentinel/gateway/internal/api/handlers"
 	"github.com/datasentinel/gateway/internal/audit"
+	"github.com/datasentinel/gateway/internal/auth"
 	"github.com/datasentinel/gateway/internal/config"
+	"github.com/datasentinel/gateway/internal/controlplane"
 	"github.com/datasentinel/gateway/internal/engine"
+	"github.com/datasentinel/gateway/internal/metrics"
 	"github.com/datasentinel/gateway/internal/policy"
 	"github.com/redis/go-redis/v9"
 )
@@ -40,10 +42,25 @@ func BuildRouter(
 	r.Use(loggerMiddleware(log))
 	r.Use(recoveryMiddleware(log))
 
-	// Probes — no auth
+	// Shared dependencies
+	m := metrics.New()
+	cp := controlplane.NewClient(cfg, log)
+
+	// JWT verifier (RS256). Disabled when no public key is configured.
+	verifier, err := auth.LoadVerifier(cfg.JWTPublicKeyPath)
+	if err != nil {
+		log.Warn("failed to load JWT public key — JWT auth disabled", zap.Error(err))
+		verifier = &auth.Verifier{}
+	}
+	if !verifier.Enabled() {
+		log.Warn("JWT verification is disabled (no JWT_PUBLIC_KEY_PATH); callers must use X-API-Key + X-Tenant-ID")
+	}
+
+	// Probes + metrics — no auth
 	health := handlers.NewHealthHandler(rdb, aw, pl)
 	r.GET("/healthz", health.Liveness)
 	r.GET("/readyz", health.Readiness)
+	r.GET("/metrics", gin.WrapH(m.Handler()))
 
 	// Admin — internal cache invalidation
 	admin := r.Group("/admin")
@@ -53,10 +70,18 @@ func BuildRouter(
 		c.JSON(http.StatusOK, gin.H{"message": "cache invalidated"})
 	})
 
-	// All proxy traffic — tenant auth first, then proxy handler for NoRoute
-	proxy := handlers.NewProxyHandler(cfg, detector, pl, aw, log)
-	r.Use(tenantAuthMiddleware(cfg))
-	r.NoRoute(proxy.Handle)
+	// All proxy traffic — tenant auth first, then dispatch to the LLM handler for
+	// known LLM destinations, or the generic proxy handler otherwise.
+	proxy := handlers.NewProxyHandler(cfg, detector, pl, aw, cp, rdb, m, log)
+	llm := handlers.NewLLMHandler(proxy, cfg, detector, pl, log)
+	r.Use(tenantAuthMiddleware(cfg, verifier))
+	r.NoRoute(func(c *gin.Context) {
+		if handlers.IsLLMUpstream(c.GetHeader("X-Upstream-URL")) {
+			llm.Handle(c)
+			return
+		}
+		proxy.Handle(c)
+	})
 
 	return r
 }
@@ -79,13 +104,37 @@ func loggerMiddleware(log *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
 		c.Next()
-		log.Info("proxy",
+
+		status := c.Writer.Status()
+		reqID, _ := c.Get("request_id")
+		rid, _ := reqID.(string)
+		tid, _ := c.Get("tenant_id")
+		tenant, _ := tid.(string)
+
+		fields := []zap.Field{
+			zap.String("request_id", rid),
 			zap.String("method", c.Request.Method),
 			zap.String("path", c.Request.URL.Path),
-			zap.Int("status", c.Writer.Status()),
-			zap.Duration("latency", time.Since(start)),
+			zap.Int("status", status),
+			zap.Int64("latency_ms", time.Since(start).Milliseconds()),
 			zap.String("ip", c.ClientIP()),
-		)
+			zap.Int("resp_bytes", c.Writer.Size()),
+		}
+		if tenant != "" {
+			fields = append(fields, zap.String("tenant_id", tenant))
+		}
+		if dest := c.GetHeader("X-Upstream-URL"); dest != "" {
+			fields = append(fields, zap.String("upstream", dest))
+		}
+
+		switch {
+		case status >= 500:
+			log.Error("proxy", fields...)
+		case status >= 400:
+			log.Warn("proxy", fields...)
+		default:
+			log.Info("proxy", fields...)
+		}
 	}
 }
 
@@ -93,29 +142,45 @@ func recoveryMiddleware(log *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		defer func() {
 			if r := recover(); r != nil {
-				log.Error("gateway panic", zap.Any("panic", r))
-				c.AbortWithStatusJSON(http.StatusInternalServerError,
-					gin.H{"error": "internal gateway error"})
+				reqID, _ := c.Get("request_id")
+				rid, _ := reqID.(string)
+				tid, _ := c.Get("tenant_id")
+				tenant, _ := tid.(string)
+				log.Error("gateway panic recovered",
+					zap.Any("panic", r),
+					zap.String("request_id", rid),
+					zap.String("tenant_id", tenant),
+					zap.String("method", c.Request.Method),
+					zap.String("path", c.Request.URL.Path),
+					zap.String("ip", c.ClientIP()),
+					zap.ByteString("stack", debug.Stack()),
+				)
+				if !c.Writer.Written() {
+					c.AbortWithStatusJSON(http.StatusInternalServerError,
+						gin.H{"error": "internal gateway error", "request_id": rid})
+				}
 			}
 		}()
 		c.Next()
 	}
 }
 
-func tenantAuthMiddleware(cfg *config.Config) gin.HandlerFunc {
+func tenantAuthMiddleware(cfg *config.Config, verifier *auth.Verifier) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		path := c.Request.URL.Path
-		if path == "/healthz" || path == "/readyz" || strings.HasPrefix(path, "/admin") {
+		if path == "/healthz" || path == "/readyz" || path == "/metrics" || strings.HasPrefix(path, "/admin") {
 			c.Next()
 			return
 		}
 
-		// Bearer JWT
-		if auth := c.GetHeader("Authorization"); auth != "" {
-			tid, err := extractTenantFromJWT(auth)
-			if err != nil {
+		// X-API-Key with explicit X-Tenant-ID (primary path for SDK + internal
+		// callers). The key is trusted at the network boundary; the control plane
+		// validates it when policy rules are fetched.
+		if key := c.GetHeader("X-API-Key"); key != "" {
+			tid := c.GetHeader("X-Tenant-ID")
+			if tid == "" {
 				c.AbortWithStatusJSON(http.StatusUnauthorized,
-					gin.H{"error": "invalid token: " + err.Error()})
+					gin.H{"error": "X-Tenant-ID header required with X-API-Key"})
 				return
 			}
 			c.Set("tenant_id", tid)
@@ -123,12 +188,13 @@ func tenantAuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
-		// X-API-Key with explicit X-Tenant-ID
-		if key := c.GetHeader("X-API-Key"); key != "" {
-			tid := c.GetHeader("X-Tenant-ID")
-			if tid == "" {
+		// Bearer JWT — signature is verified against the control plane's RS256
+		// public key (when configured).
+		if authz := c.GetHeader("Authorization"); authz != "" {
+			tid, err := verifier.TenantFromBearer(authz)
+			if err != nil {
 				c.AbortWithStatusJSON(http.StatusUnauthorized,
-					gin.H{"error": "X-Tenant-ID header required with X-API-Key"})
+					gin.H{"error": "invalid token: " + err.Error()})
 				return
 			}
 			c.Set("tenant_id", tid)
@@ -143,51 +209,10 @@ func tenantAuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 
 func serviceKeyAuth(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if c.GetHeader("X-Service-Key") != cfg.ControlPlaneAPIKey {
+		if subtle.ConstantTimeCompare([]byte(c.GetHeader("X-Service-Key")), []byte(cfg.ControlPlaneAPIKey)) != 1 {
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
 			return
 		}
 		c.Next()
 	}
-}
-
-// extractTenantFromJWT parses JWT claims without full signature verification.
-// The gateway operates in a trusted internal network; the control plane already
-// verified the token when issuing it. For high-security deployments, load the
-// RS256 public key and verify here as well.
-func extractTenantFromJWT(authHeader string) (string, error) {
-	parts := strings.SplitN(authHeader, " ", 2)
-	if len(parts) != 2 || !strings.EqualFold(parts[0], "bearer") {
-		return "", fmt.Errorf("malformed authorization header")
-	}
-	segments := strings.Split(parts[1], ".")
-	if len(segments) != 3 {
-		return "", fmt.Errorf("malformed jwt")
-	}
-	// Pad base64 if needed
-	payload := segments[1]
-	switch len(payload) % 4 {
-	case 2:
-		payload += "=="
-	case 3:
-		payload += "="
-	}
-	decoded, err := base64.URLEncoding.DecodeString(payload)
-	if err != nil {
-		return "", fmt.Errorf("decode jwt payload: %w", err)
-	}
-	var claims map[string]any
-	if err := json.Unmarshal(decoded, &claims); err != nil {
-		return "", fmt.Errorf("parse jwt claims: %w", err)
-	}
-	tid, ok := claims["tid"].(string)
-	if !ok || tid == "" {
-		return "", fmt.Errorf("missing tenant id claim")
-	}
-	if exp, ok := claims["exp"].(float64); ok {
-		if time.Now().Unix() > int64(exp) {
-			return "", fmt.Errorf("token expired")
-		}
-	}
-	return tid, nil
 }

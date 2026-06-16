@@ -32,6 +32,10 @@ func RequestID() gin.HandlerFunc {
 // Logger logs every request with structured fields and comprehensive context.
 func Logger(log *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Make the logger available to downstream handlers/helpers so they can
+		// emit correlated, structured error logs.
+		c.Set(CtxLogger, log)
+
 		start := time.Now()
 		path := c.Request.URL.Path
 		query := c.Request.URL.RawQuery
@@ -44,9 +48,10 @@ func Logger(log *zap.Logger) gin.HandlerFunc {
 		requestID, _ := c.Get(CtxRequestID)
 		userID, _ := c.Get(CtxUserID)
 		tenantID, _ := c.Get(CtxTenantID)
+		ridStr, _ := requestID.(string)
 
 		fields := []zap.Field{
-			zap.String("request_id", requestID.(string)),
+			zap.String("request_id", ridStr),
 			zap.Int("status", status),
 			zap.String("method", method),
 			zap.String("path", path),
@@ -101,6 +106,7 @@ func Recovery(log *zap.Logger) gin.HandlerFunc {
 				requestID, _ := c.Get(CtxRequestID)
 				userID, _ := c.Get(CtxUserID)
 				tenantID, _ := c.Get(CtxTenantID)
+				ridStr, _ := requestID.(string)
 
 				// Get stack trace
 				stackTrace := string(debug.Stack())
@@ -115,7 +121,7 @@ func Recovery(log *zap.Logger) gin.HandlerFunc {
 				// Log error with full context
 				log.Error("panic recovered",
 					zap.Any("panic", r),
-					zap.String("request_id", requestID.(string)),
+					zap.String("request_id", ridStr),
 					zap.String("method", c.Request.Method),
 					zap.String("path", c.Request.URL.Path),
 					zap.String("query", c.Request.URL.RawQuery),
@@ -130,7 +136,7 @@ func Recovery(log *zap.Logger) gin.HandlerFunc {
 				)
 
 				c.AbortWithStatusJSON(http.StatusInternalServerError, models.APIResponse{
-					RequestID: requestID.(string),
+					RequestID: ridStr,
 					Error: &models.APIError{
 						Code:    models.ErrCodeInternalError,
 						Message: "an unexpected error occurred",

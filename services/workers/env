@@ -1,0 +1,85 @@
+# Workers Environment Configuration
+# Copy this to .env and update with your values
+
+# ── PostgreSQL ────────────────────────────────────────────────────────────────
+# Format: postgresql://user:password@host:port/database
+DATABASE_URL=postgresql://datasentinel:datasentinel@localhost:5432/datasentinel
+# Log all SQL statements (development only)
+DEBUG_SQL=false
+
+# ── Redis (Celery broker & result backend) ────────────────────────────────────
+# Workers use the same Redis instance for task queue
+REDIS_URL=redis://localhost:6379/0
+
+# ── Celery Configuration ──────────────────────────────────────────────────────
+CELERY_TASK_SERIALIZER=json
+CELERY_RESULT_SERIALIZER=json
+CELERY_ACCEPT_CONTENT=["json"]
+CELERY_TIMEZONE=Asia/Kolkata
+CELERY_ENABLE_UTC=true
+# Local development: 4-8 workers
+CELERY_WORKER_CONCURRENCY=4
+# Soft timeout: alert if task takes longer than 1 hour
+CELERY_TASK_SOFT_TIME_LIMIT=3600
+# Hard timeout: kill task after 1h 5m
+CELERY_TASK_TIME_LIMIT=3900
+# Max retry attempts before giving up
+CELERY_TASK_MAX_RETRIES=3
+# Delay between retries (seconds)
+CELERY_TASK_DEFAULT_RETRY_DELAY=60
+
+# ── AWS (Optional, for cross-workspace scans) ─────────────────────────────────
+AWS_REGION=ap-south-1
+AWS_ACCESS_KEY_ID=
+AWS_SECRET_ACCESS_KEY=
+AWS_ROLE_ARN=
+# S3 bucket where generated compliance reports are stored. Leave empty in local
+# dev (reports then use a non-downloadable internal:// placeholder URL).
+S3_REPORTS_BUCKET=
+# Lifetime (seconds) of presigned report download URLs. Max 7 days (604800).
+REPORT_URL_TTL_SECONDS=604800
+
+# ── GCP (Optional) ────────────────────────────────────────────────────────────
+# Path to GCP service account JSON file
+GOOGLE_APPLICATION_CREDENTIALS=
+
+# ── Azure (Optional) ──────────────────────────────────────────────────────────
+AZURE_STORAGE_CONNECTION_STRING=
+
+# ── Encryption ────────────────────────────────────────────────────────────────
+# MUST be identical to control-plane and gateway
+# 32-byte hex key (64 characters)
+MASTER_ENCRYPTION_KEY=cbc4565ddbfe08d7c55bc3bf8c15e2e1f5a06fc9d1e9dc1a5cda50fac4fa64da
+
+# ── Control Plane Integration ─────────────────────────────────────────────────
+# URL where control-plane API is running
+CONTROL_PLANE_URL=http://localhost:3001
+# Internal service-to-service API key (must match in gateway)
+CONTROL_PLANE_API_KEY=dev-api-key-12345
+
+# ── ClickHouse ────────────────────────────────────────────────────────────────
+# Time-series database for scan results
+CLICKHOUSE_URL=http://localhost:8123
+CLICKHOUSE_USER=default
+CLICKHOUSE_PASSWORD=
+CLICKHOUSE_DATABASE=datasentinel
+
+# ── Logging & Observability ──────────────────────────────────────────────────
+LOG_LEVEL=INFO
+ENVIRONMENT=development
+SERVICE_NAME=datasentinel-workers
+
+# ── PII Detection (Presidio + spaCy) ──────────────────────────────────────────
+# Minimum confidence score to report a PII entity (0.0 to 1.0)
+PRESIDIO_SCORE_THRESHOLD=0.7
+# spaCy model for NER (must run: python -m spacy download en_core_web_lg)
+SPACY_MODEL=en_core_web_lg
+# Maximum records to analyze per table/S3 object for sample-based detection
+MAX_SAMPLE_SIZE=1000
+
+# ── Scan Settings ─────────────────────────────────────────────────────────────
+# Records per batch during database classification
+SCAN_BATCH_SIZE=500
+# Maximum S3 objects to inspect per scan (prevents runaway scans)
+S3_MAX_OBJECTS_PER_SCAN=10000
+

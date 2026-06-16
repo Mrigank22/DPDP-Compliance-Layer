@@ -1,0 +1,125 @@
+{{- if .Values.ingress.enabled }}
+{{- $fullName := include "datasentinel.fullname" . }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $fullName }}-dashboard
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "datasentinel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: dashboard
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.dashboard.host | quote }}
+      secretName: {{ .Values.ingress.tls.secretName }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.dashboard.host | quote }}
+      http:
+        paths:
+          {{- if .Values.controlPlane.enabled }}
+          - path: {{ .Values.ingress.dashboard.apiPath }}
+            pathType: {{ .Values.ingress.dashboard.apiPathType }}
+            backend:
+              service:
+                name: {{ include "datasentinel.controlPlane.fullname" . }}
+                port:
+                  number: {{ .Values.controlPlane.service.port }}
+          {{- end }}
+          {{- if .Values.frontend.enabled }}
+          - path: {{ .Values.ingress.dashboard.rootPath }}
+            pathType: {{ .Values.ingress.dashboard.rootPathType }}
+            backend:
+              service:
+                name: {{ include "datasentinel.frontend.fullname" . }}
+                port:
+                  number: {{ .Values.frontend.service.port }}
+          {{- end }}
+{{- end }}
+{{- if and .Values.ingress.gateway.enabled .Values.gateway.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "datasentinel.gateway.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "datasentinel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway
+  annotations:
+    {{- with .Values.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    {{- with .Values.ingress.gateway.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- if .Values.ingress.gateway.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.gateway.host | quote }}
+      secretName: {{ .Values.ingress.gateway.tls.secretName }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.gateway.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "datasentinel.gateway.fullname" . }}
+                port:
+                  number: {{ .Values.gateway.service.httpPort }}
+{{- end }}
+{{- if and .Values.ingress.flower.enabled .Values.workers.enabled .Values.workers.flower.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "datasentinel.workers.fullname" . }}-flower
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "datasentinel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: flower
+  annotations:
+    {{- with .Values.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    {{- with .Values.ingress.flower.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- if .Values.ingress.flower.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.flower.host | quote }}
+      secretName: {{ .Values.ingress.flower.tls.secretName }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.flower.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "datasentinel.workers.fullname" . }}-flower
+                port:
+                  number: {{ .Values.workers.flower.service.port }}
+{{- end }}

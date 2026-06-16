@@ -2,12 +2,15 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { motion } from "framer-motion";
 import Link from "next/link";
-import { ArrowLeft, AlertCircle, Loader2 } from "lucide-react";
-import { apiClient } from "@/lib/api-client";
+import { ArrowLeft, Building2, Loader2, Lock, Mail, ShieldAlert, User } from "lucide-react";
+import { authAPI } from "@/lib/api/auth";
+import { getApiErrorMessage } from "@/lib/api-client";
 import { useAuthStore } from "@/lib/store/auth.store";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { AuthShell } from "@/components/layout/auth-shell";
 
 export default function SignupPage() {
   const router = useRouter();
@@ -21,201 +24,173 @@ export default function SignupPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  const slug = orgName
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-
     if (!agreed) {
       setError("Please accept the Terms of Service and Privacy Policy.");
       return;
     }
-
     setLoading(true);
     try {
-      // Generate a slug from org name e.g. "Acme Corp" -> "acme-corp"
-      const tenantSlug = orgName
-          .toLowerCase()
-          .trim()
-          .replace(/[^a-z0-9]+/g, "-")
-          .replace(/^-|-$/g, "");
-
-      console.log("Sending to API:", {
+      const res = await authAPI.register({
         full_name: fullName,
         email,
         password,
         tenant_name: orgName,
-        tenant_slug: tenantSlug,
+        tenant_slug: slug,
       });
-
-      const response = await apiClient.post("/auth/register", {
-        full_name: fullName,
-        email,
-        password,
-        tenant_name: orgName,
-        tenant_slug: tenantSlug,
-      });
-
-      const { data } = response.data;
-      setAuth(data.user, data.access_token, data.refresh_token);
+      const payload = res.data;
+      setAuth(payload.user, payload.access_token, payload.refresh_token);
       router.push("/dashboard");
-    } catch (err: any) {
-      console.log("Error response:", err.response?.data);
-      console.log("Error status:", err.response?.status);
-      setError(
-          err.response?.data?.error?.message ||
-          err.response?.data?.message ||
-          "Registration failed. Please try again."
-      );
+    } catch (err) {
+      setError(getApiErrorMessage(err, "Registration failed. Please try again."));
     } finally {
       setLoading(false);
     }
   };
 
   return (
-      <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.3 }}
-          className="flex items-center justify-center min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 px-4"
+    <AuthShell badge="Provision Workspace">
+      <Link
+        href="/login"
+        className="mb-6 inline-flex items-center gap-1.5 font-mono text-xs text-muted transition-colors hover:text-accent"
       >
-        <div className="w-full max-w-md">
-          <motion.div
-              initial={{ y: -20, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              transition={{ delay: 0.1, duration: 0.4 }}
-              className="text-center mb-8"
-          >
-            <Link
-                href="/login"
-                className="inline-flex items-center gap-2 text-blue-400 hover:text-blue-300 mb-4"
-            >
-              <ArrowLeft className="w-4 h-4" />
-              Back to login
-            </Link>
-            <h1 className="text-3xl font-bold text-white mb-2">Create Account</h1>
-            <p className="text-slate-400">Get started with DataSentinel</p>
-          </motion.div>
+        <ArrowLeft className="h-3.5 w-3.5" />
+        back to sign-in
+      </Link>
 
-          <motion.div
-              initial={{ y: 20, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              transition={{ delay: 0.2, duration: 0.4 }}
-              className="bg-slate-800 border border-slate-700 rounded-xl p-8 shadow-2xl"
-          >
-            {error && (
-                <Alert variant="destructive" className="mb-4">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertDescription>{error}</AlertDescription>
-                </Alert>
-            )}
+      <div className="mb-7">
+        <h1 className="font-display text-3xl font-bold tracking-tight text-foreground">
+          Create your workspace
+        </h1>
+        <p className="mt-1.5 text-sm text-muted">
+          Spin up an isolated, India-region tenant in seconds.
+        </p>
+      </div>
 
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2">
-                  Full Name
-                </label>
-                <input
-                    type="text"
-                    placeholder="John Doe"
-                    value={fullName}
-                    onChange={(e) => setFullName(e.target.value)}
-                    required
-                    className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2">
-                  Email Address
-                </label>
-                <input
-                    type="email"
-                    placeholder="you@company.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required
-                    className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2">
-                  Organization Name
-                </label>
-                <input
-                    type="text"
-                    placeholder="Acme Fintech Pvt Ltd"
-                    value={orgName}
-                    onChange={(e) => setOrgName(e.target.value)}
-                    required
-                    className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2">
-                  Password
-                </label>
-                <input
-                    type="password"
-                    placeholder="••••••••"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                    className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
-                />
-                <p className="text-xs text-slate-400 mt-2">
-                  Minimum 8 characters with uppercase, lowercase, and numbers
-                </p>
-              </div>
-
-              <div>
-                <label className="flex items-start gap-2 text-slate-400 cursor-pointer">
-                  <input
-                      type="checkbox"
-                      className="mt-1 rounded"
-                      checked={agreed}
-                      onChange={(e) => setAgreed(e.target.checked)}
-                  />
-                  <span className="text-sm">
-                  I agree to the{" "}
-                    <Link href="/terms" className="text-blue-400 hover:text-blue-300">
-                    Terms of Service
-                  </Link>{" "}
-                    and{" "}
-                    <Link href="/privacy" className="text-blue-400 hover:text-blue-300">
-                    Privacy Policy
-                  </Link>
-                </span>
-                </label>
-              </div>
-
-              <motion.button
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  type="submit"
-                  disabled={loading}
-                  className="w-full py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition duration-200 mt-6 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-              >
-                {loading ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Creating account...
-                    </>
-                ) : (
-                    "Create Account"
-                )}
-              </motion.button>
-            </form>
-
-            <p className="text-center text-slate-400 text-sm mt-6">
-              Already have an account?{" "}
-              <Link href="/login" className="text-blue-400 hover:text-blue-300">
-                Sign in
-              </Link>
-            </p>
-          </motion.div>
+      {error && (
+        <div className="mb-5 flex items-start gap-2.5 rounded-lg border border-critical/30 bg-critical/8 px-4 py-3 text-sm text-critical">
+          <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>{error}</span>
         </div>
-      </motion.div>
+      )}
+
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="space-y-1.5">
+          <Label htmlFor="name">Full Name</Label>
+          <div className="relative">
+            <User className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
+            <Input
+              id="name"
+              className="pl-9"
+              placeholder="Aarav Sharma"
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              required
+            />
+          </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="email">Work Email</Label>
+          <div className="relative">
+            <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
+            <Input
+              id="email"
+              type="email"
+              className="pl-9"
+              placeholder="you@company.in"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+            />
+          </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="org">Organization</Label>
+          <div className="relative">
+            <Building2 className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
+            <Input
+              id="org"
+              className="pl-9"
+              placeholder="Acme Fintech Pvt Ltd"
+              value={orgName}
+              onChange={(e) => setOrgName(e.target.value)}
+              required
+            />
+          </div>
+          {slug && (
+            <p className="font-mono text-[11px] text-faint">
+              tenant: <span className="text-accent">{slug}</span>.datasentinel.io
+            </p>
+          )}
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="password">Password</Label>
+          <div className="relative">
+            <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
+            <Input
+              id="password"
+              type="password"
+              className="pl-9"
+              placeholder="••••••••••"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+            />
+          </div>
+          <p className="text-[11px] text-faint">
+            Minimum 8 characters with uppercase, lowercase & numbers.
+          </p>
+        </div>
+
+        <label className="flex cursor-pointer items-start gap-2.5 pt-1">
+          <input
+            type="checkbox"
+            className="mt-0.5 h-4 w-4 rounded border-border bg-surface-2 accent-[var(--color-accent)]"
+            checked={agreed}
+            onChange={(e) => setAgreed(e.target.checked)}
+          />
+          <span className="text-xs text-muted">
+            I agree to the{" "}
+            <Link href="/signup" className="text-accent hover:underline">
+              Terms of Service
+            </Link>{" "}
+            and{" "}
+            <Link href="/signup" className="text-accent hover:underline">
+              Privacy Policy
+            </Link>
+            .
+          </span>
+        </label>
+
+        <Button type="submit" size="lg" className="w-full" disabled={loading}>
+          {loading ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Provisioning…
+            </>
+          ) : (
+            "Create workspace →"
+          )}
+        </Button>
+      </form>
+
+      <p className="mt-6 text-center text-sm text-muted">
+        Already onboarded?{" "}
+        <Link href="/login" className="text-accent hover:underline">
+          Sign in
+        </Link>
+      </p>
+    </AuthShell>
   );
 }

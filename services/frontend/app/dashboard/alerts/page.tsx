@@ -1,12 +1,25 @@
 "use client";
 
-import { useState } from "react";
-import { motion } from "framer-motion";
+import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiClient } from "@/lib/api-client";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  BellRing,
+  CheckCheck,
+  Check,
+  Trash2,
+  ShieldAlert,
+} from "lucide-react";
+import { alertsAPI } from "@/lib/api/alerts";
+import type { Alert, AlertListFilter } from "@/types/api";
+import { SEVERITY_LEVELS, ALERT_TYPES } from "@/types/api";
+import { getApiErrorMessage } from "@/lib/api-client";
+import { toast } from "@/lib/store/toast.store";
+import { PageHeader, Panel } from "@/components/common/panel";
+import { TableSkeleton, EmptyState, ErrorState } from "@/components/common/states";
+import { SeverityBadge } from "@/components/common/indicators";
+import { Pager } from "@/components/common/pager";
+import { Stagger } from "@/components/common/reveal";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import {
   Select,
   SelectContent,
@@ -14,245 +27,228 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { AlertTriangle, Bell, CheckCircle, Loader2, Trash2 } from "lucide-react";
-import { ALERT_TYPES, SEVERITY_LEVELS } from "@/types/api";
+import { ALERT_TYPE_LABELS, label } from "@/lib/utils/labels";
+import { formatRelativeTime, getSeverityHex } from "@/lib/utils/helpers";
 
 export default function AlertsPage() {
-  const queryClient = useQueryClient();
-  const [filterType, setFilterType] = useState("all");
-  const [filterSeverity, setFilterSeverity] = useState("all");
-  const [filterRead, setFilterRead] = useState("unread");
+  const qc = useQueryClient();
+  const [page, setPage] = useState(1);
+  const [severity, setSeverity] = useState("all");
+  const [type, setType] = useState("all");
+  const [ack, setAck] = useState("unack");
 
-  // Fetch alerts
-  const { data: alerts, isLoading } = useQuery({
-    queryKey: ["alerts", filterType, filterSeverity, filterRead],
-    queryFn: async () => {
-      const params = new URLSearchParams();
-      if (filterType !== "all") params.append("alert_type", filterType);
-      if (filterSeverity !== "all") params.append("severity", filterSeverity);
-      if (filterRead === "unread") params.append("is_acknowledged", "false");
-      if (filterRead === "read") params.append("is_acknowledged", "true");
-      const response = await apiClient.get(`/alerts?${params.toString()}`);
-      return response.data.data || [];
-    },
+  const filters: AlertListFilter = useMemo(
+    () => ({
+      page,
+      page_size: 20,
+      severity: severity === "all" ? undefined : severity,
+      alert_type: type === "all" ? undefined : type,
+      is_acknowledged: ack === "all" ? undefined : ack === "ack",
+    }),
+    [page, severity, type, ack],
+  );
+
+  const alertsQ = useQuery({
+    queryKey: ["alerts", filters],
+    queryFn: () => alertsAPI.list(filters),
   });
 
-  // Acknowledge alert mutation
-  const acknowledgeAlertMutation = useMutation({
-    mutationFn: async (alertId: string) => {
-      const response = await apiClient.post(`/alerts/${alertId}/acknowledge`);
-      return response.data.data;
-    },
+  const acknowledge = useMutation({
+    mutationFn: (ids: string[]) => alertsAPI.acknowledge(ids),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["alerts"] });
+      qc.invalidateQueries({ queryKey: ["alerts"] });
+      toast.success("Acknowledged");
     },
+    onError: (e) => toast.error("Action failed", getApiErrorMessage(e)),
   });
-
-  // Delete alert mutation
-  const deleteAlertMutation = useMutation({
-    mutationFn: async (alertId: string) => {
-      await apiClient.delete(`/alerts/${alertId}`);
-    },
+  const acknowledgeAll = useMutation({
+    mutationFn: () => alertsAPI.acknowledgeAll(),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["alerts"] });
+      qc.invalidateQueries({ queryKey: ["alerts"] });
+      toast.success("All alerts acknowledged");
     },
+    onError: (e) => toast.error("Action failed", getApiErrorMessage(e)),
   });
-
-  // Acknowledge all mutation
-  const acknowledgeAllMutation = useMutation({
-    mutationFn: async () => {
-      await apiClient.post("/alerts/acknowledge-all");
-    },
+  const del = useMutation({
+    mutationFn: (id: string) => alertsAPI.delete(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["alerts"] });
+      qc.invalidateQueries({ queryKey: ["alerts"] });
+      toast.success("Alert dismissed");
     },
+    onError: (e) => toast.error("Could not dismiss", getApiErrorMessage(e)),
   });
 
-  const getSeverityColor = (severity: string) => {
-    switch (severity) {
-      case "critical":
-        return "critical";
-      case "high":
-        return "high";
-      case "medium":
-        return "medium";
-      case "low":
-        return "low";
-      default:
-        return "info";
-    }
-  };
-
-  const getSeverityIcon = (severity: string) => {
-    if (severity === "critical" || severity === "high") {
-      return <AlertTriangle className="h-5 w-5 text-red-400" />;
-    }
-    return <Bell className="h-5 w-5 text-yellow-400" />;
-  };
+  const alerts: Alert[] = alertsQ.data?.data ?? [];
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const unacked = alerts.filter((a) => !a.is_acknowledged);
+  const toggleOne = (id: string) =>
+    setSelectedIds((cur) => {
+      const next = new Set(cur);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: 0.3 }}
-        className="flex items-center justify-between"
-      >
-        <div>
-          <h1 className="text-3xl font-bold text-slate-100">Alerts</h1>
-          <p className="text-slate-400 mt-1">
-            Monitor security and compliance alerts
-          </p>
-        </div>
-        <Button
-          onClick={() => acknowledgeAllMutation.mutate()}
-          disabled={acknowledgeAllMutation.isPending}
-          variant="outline"
-        >
-          Acknowledge All
-        </Button>
-      </motion.div>
+      <PageHeader
+        eyebrow="Signal Feed"
+        title="Alerts"
+        description="Breach indicators, policy violations and compliance deadlines requiring attention."
+        icon={<BellRing className="h-5 w-5" />}
+        actions={
+          <Button
+            variant="outline"
+            disabled={acknowledgeAll.isPending}
+            onClick={() => acknowledgeAll.mutate()}
+          >
+            <CheckCheck className="h-4 w-4" /> Acknowledge all
+          </Button>
+        }
+      />
 
-      {/* Filters */}
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: 0.3, delay: 0.1 }}
-        className="flex gap-4"
+      <Panel
+        title="Alert Stream"
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <Select value={ack} onValueChange={(v) => { setPage(1); setAck(v); }}>
+              <SelectTrigger className="h-9 w-36 text-sm"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="unack">Unacknowledged</SelectItem>
+                <SelectItem value="ack">Acknowledged</SelectItem>
+                <SelectItem value="all">All</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={severity} onValueChange={(v) => { setPage(1); setSeverity(v); }}>
+              <SelectTrigger className="h-9 w-32 text-sm"><SelectValue placeholder="Severity" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All severity</SelectItem>
+                {SEVERITY_LEVELS.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Select value={type} onValueChange={(v) => { setPage(1); setType(v); }}>
+              <SelectTrigger className="h-9 w-44 text-sm"><SelectValue placeholder="Type" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All types</SelectItem>
+                {ALERT_TYPES.map((t) => <SelectItem key={t} value={t}>{label(ALERT_TYPE_LABELS, t)}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+        }
       >
-        <Select value={filterRead} onValueChange={setFilterRead}>
-          <SelectTrigger className="w-48">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All</SelectItem>
-            <SelectItem value="unread">Unread</SelectItem>
-            <SelectItem value="read">Read</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select value={filterType} onValueChange={setFilterType}>
-          <SelectTrigger className="w-48">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Types</SelectItem>
-            {ALERT_TYPES.map((type) => (
-              <SelectItem key={type} value={type}>
-                {type.replace(/_/g, " ")}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={filterSeverity} onValueChange={setFilterSeverity}>
-          <SelectTrigger className="w-48">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Severities</SelectItem>
-            {SEVERITY_LEVELS.map((level) => (
-              <SelectItem key={level} value={level}>
-                {level.charAt(0).toUpperCase() + level.slice(1)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </motion.div>
-
-      {/* Alerts List */}
-      {isLoading ? (
-        <Card>
-          <CardContent className="p-12 flex items-center justify-center">
-            <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
-          </CardContent>
-        </Card>
-      ) : (alerts || []).length === 0 ? (
-        <Card>
-          <CardContent className="p-12 text-center text-slate-400">
-            No alerts found! All quiet on the compliance front.
-          </CardContent>
-        </Card>
-      ) : (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.3, delay: 0.2 }}
-          className="space-y-4"
-        >
-          {(alerts || []).map((alert: any) => (
-            <motion.div
-              key={alert.id}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-            >
-              <Card
-                className={
-                  !alert.is_acknowledged ? "border-blue-600" : ""
+        {alertsQ.isLoading ? (
+          <TableSkeleton rows={6} cols={3} />
+        ) : alertsQ.isError ? (
+          <ErrorState message={getApiErrorMessage(alertsQ.error)} onRetry={() => alertsQ.refetch()} />
+        ) : alerts.length === 0 ? (
+          <EmptyState
+            icon={<CheckCheck className="h-6 w-6" />}
+            title="No alerts"
+            description="You're all caught up. New signals will appear here."
+          />
+        ) : (
+          <>
+            {selectedIds.size > 0 && (
+              <div className="mb-3 flex items-center gap-3 rounded-lg border border-accent/30 bg-accent/8 px-4 py-2.5">
+                <span className="font-mono text-xs text-accent">{selectedIds.size} selected</span>
+                <Button
+                  size="sm"
+                  className="ml-auto"
+                  disabled={acknowledge.isPending}
+                  onClick={() =>
+                    acknowledge.mutate(Array.from(selectedIds), {
+                      onSuccess: () => setSelectedIds(new Set()),
+                    })
+                  }
+                >
+                  <Check className="h-4 w-4" /> Acknowledge selected
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => setSelectedIds(new Set())}>
+                  Clear
+                </Button>
+              </div>
+            )}
+            {unacked.length > 0 && (
+              <button
+                onClick={() =>
+                  setSelectedIds(
+                    selectedIds.size === unacked.length ? new Set() : new Set(unacked.map((a) => a.id)),
+                  )
                 }
+                className="mb-2 font-mono text-[11px] uppercase tracking-wide text-faint transition-colors hover:text-accent"
               >
-                <CardContent className="p-6">
-                  <div className="flex items-start justify-between">
-                    <div className="flex gap-4 flex-1">
-                      <div className="flex-shrink-0">
-                        {getSeverityIcon(alert.severity)}
-                     </div>
-                      <div className="flex-1">
-                        <div className="flex items-center gap-3 mb-2">
-                          <h3 className="text-lg font-semibold text-slate-100">
-                            {alert.title}
-                          </h3>
-                          <Badge variant={getSeverityColor(alert.severity)}>
-                            {alert.severity}
-                          </Badge>
-                          {alert.is_acknowledged && (
-                            <Badge variant="success">
-                              <CheckCircle className="h-3 w-3 mr-1" />
-                              Acknowledged
-                            </Badge>
-                          )}
-                        </div>
-                        <p className="text-sm text-slate-300 mb-2">
-                          {alert.body}
-                        </p>
-                        <div className="flex items-center gap-4 text-xs text-slate-400">
-                          <span>{alert.alert_type.replace(/_/g, " ")}</span>
-                          <span>•</span>
-                          <span>
-                            {new Date(alert.created_at).toLocaleString()}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex gap-2 ml-4">
-                      {!alert.is_acknowledged && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() =>
-                            acknowledgeAlertMutation.mutate(alert.id)
-                          }
-                          disabled={acknowledgeAlertMutation.isPending}
-                        >
-                          <CheckCircle className="h-4 w-4" />
-                        </Button>
-                      )}
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => deleteAlertMutation.mutate(alert.id)}
-                        disabled={deleteAlertMutation.isPending}
-                      >
-                        <Trash2 className="h-4 w-4 text-red-400" />
-                      </Button>
-                    </div>
+                {selectedIds.size === unacked.length ? "clear selection" : "select all unacknowledged"}
+              </button>
+            )}
+            <Stagger className="space-y-2.5">
+              {alerts.map((a) => (
+                <div
+                  key={a.id}
+                  data-reveal
+                  className="relative flex items-start gap-3 overflow-hidden rounded-xl border border-border bg-surface-2/40 p-4"
+                >
+                  <span
+                    className="absolute inset-y-0 left-0 w-1"
+                    style={{ background: getSeverityHex(a.severity) }}
+                  />
+                  {!a.is_acknowledged ? (
+                    <input
+                      type="checkbox"
+                      aria-label="Select alert"
+                      className="mt-1 h-4 w-4 shrink-0 cursor-pointer rounded border-border bg-surface-2 accent-[var(--color-accent)]"
+                      checked={selectedIds.has(a.id)}
+                      onChange={() => toggleOne(a.id)}
+                    />
+                  ) : (
+                    <span className="mt-1 h-4 w-4 shrink-0" />
+                  )}
+                  <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border bg-surface text-muted">
+                    <ShieldAlert className="h-4 w-4" />
                   </div>
-                </CardContent>
-              </Card>
-            </motion.div>
-          ))}
-        </motion.div>
-      )}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-display font-semibold text-foreground">{a.title}</p>
+                      <SeverityBadge severity={a.severity} />
+                      {!a.is_acknowledged && (
+                        <span className="h-1.5 w-1.5 rounded-full bg-accent" />
+                      )}
+                    </div>
+                    {a.body && <p className="mt-1 text-sm text-muted">{a.body}</p>}
+                    <p className="mt-1.5 font-mono text-[11px] uppercase tracking-wide text-faint">
+                      {label(ALERT_TYPE_LABELS, a.alert_type)} · {formatRelativeTime(a.created_at)}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1">
+                    {!a.is_acknowledged && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        title="Acknowledge"
+                        disabled={acknowledge.isPending}
+                        onClick={() => acknowledge.mutate([a.id])}
+                      >
+                        <Check className="h-4 w-4" />
+                      </Button>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      title="Dismiss"
+                      className="text-critical hover:text-critical"
+                      onClick={() => del.mutate(a.id)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </Stagger>
+            <div className="mt-4">
+              <Pager pagination={alertsQ.data?.meta?.pagination} onPageChange={setPage} />
+            </div>
+          </>
+        )}
+      </Panel>
     </div>
   );
 }
-

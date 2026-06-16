@@ -43,6 +43,11 @@ type Config struct {
 	// Encryption
 	MasterEncryptionKey string `mapstructure:"MASTER_ENCRYPTION_KEY"` // 32-byte hex
 
+	// Internal service-to-service API key (shared with gateway + workers).
+	// Callers presenting this key in X-API-Key are treated as a trusted service
+	// identity scoped to the tenant named in the X-Tenant-ID header.
+	InternalAPIKey string `mapstructure:"INTERNAL_API_KEY"`
+
 	// AWS
 	AWSRegion          string `mapstructure:"AWS_REGION"`
 	AWSAccessKeyID     string `mapstructure:"AWS_ACCESS_KEY_ID"`
@@ -100,6 +105,7 @@ func Load() (*Config, error) {
 	v.SetDefault("PHONE_HOME_URL", "https://app.datasentinel.io/api/v1/updates")
 	v.SetDefault("LOG_LEVEL", "info")
 	v.SetDefault("WORKER_REDIS_URL", "redis://localhost:6379/1")
+	v.SetDefault("INTERNAL_API_KEY", "")
 
 	v.AutomaticEnv()
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))

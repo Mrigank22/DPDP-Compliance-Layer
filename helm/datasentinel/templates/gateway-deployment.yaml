@@ -1,0 +1,128 @@
+{{- if .Values.gateway.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "datasentinel.gateway.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "datasentinel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway
+spec:
+  {{- if not .Values.gateway.autoscaling.enabled }}
+  replicas: {{ .Values.gateway.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "datasentinel.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: gateway
+  template:
+    metadata:
+      labels:
+        {{- include "datasentinel.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: gateway
+        {{- with .Values.gateway.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmaps.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secrets.yaml") . | sha256sum }}
+        {{- if .Values.metrics.serviceMonitor.enabled }}
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ .Values.gateway.httpPort | quote }}
+        prometheus.io/path: "/metrics"
+        {{- end }}
+        {{- with .Values.gateway.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- include "datasentinel.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ include "datasentinel.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: gateway
+          image: {{ include "datasentinel.image" (dict "root" $ "svc" .Values.gateway) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.gateway.httpPort }}
+              protocol: TCP
+            {{- if .Values.gateway.tls.enabled }}
+            - name: https
+              containerPort: {{ .Values.gateway.httpsPort }}
+              protocol: TCP
+            {{- end }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "datasentinel.gateway.fullname" . }}
+            - secretRef:
+                name: {{ include "datasentinel.gateway.fullname" . }}
+          {{- with .Values.gateway.extraEnv }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- if or .Values.gateway.jwtVerification.enabled .Values.gateway.tls.enabled }}
+          volumeMounts:
+            {{- if .Values.gateway.jwtVerification.enabled }}
+            - name: jwt-public
+              mountPath: /etc/datasentinel/jwt
+              readOnly: true
+            {{- end }}
+            {{- if .Values.gateway.tls.enabled }}
+            - name: tls
+              mountPath: /etc/datasentinel/tls
+              readOnly: true
+            {{- end }}
+          {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.gateway.resources | nindent 12 }}
+      {{- if or .Values.gateway.jwtVerification.enabled .Values.gateway.tls.enabled }}
+      volumes:
+        {{- if .Values.gateway.jwtVerification.enabled }}
+        - name: jwt-public
+          secret:
+            secretName: {{ include "datasentinel.jwtSecretName" . }}
+            items:
+              - key: jwt_public.pem
+                path: jwt_public.pem
+        {{- end }}
+        {{- if .Values.gateway.tls.enabled }}
+        - name: tls
+          secret:
+            secretName: {{ .Values.gateway.tls.existingSecret | default (printf "%s-tls" (include "datasentinel.gateway.fullname" .)) }}
+        {{- end }}
+      {{- end }}
+      {{- with .Values.gateway.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.gateway.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.gateway.affinity }}
+      affinity:
+        {{- toYaml .Values.gateway.affinity | nindent 8 }}
+      {{- else if (include "datasentinel.podAntiAffinity" (dict "root" $ "component" "gateway")) | trim }}
+      affinity:
+        {{- include "datasentinel.podAntiAffinity" (dict "root" $ "component" "gateway") | nindent 8 }}
+      {{- end }}
+{{- end }}

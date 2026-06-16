@@ -74,6 +74,12 @@ class PIIAnalyzer:
     def analyze_text(self, text: str, field_name: str = "text") -> list[PIIMatch]:
         if not text or not text.strip():
             return []
+        # Cheap pre-filter: skip the (expensive) spaCy NLP pipeline for values
+        # that cannot contain any supported entity. Structured identifiers always
+        # contain a digit or '@'; free-text names/locations contain a capitalised
+        # alphabetic token. Boolean/enum/short codes are skipped outright.
+        if not _maybe_pii(text):
+            return []
         try:
             results = self._engine.analyze(
                 text=text,
@@ -131,3 +137,30 @@ def _safe_sample(text: str) -> str:
     if n <= 8:
         return "*" * n
     return text[:4] + "****" + text[n - 4:]
+
+
+def _maybe_pii(text: str) -> bool:
+    """
+    Fast heuristic gate deciding whether a value is worth running through the
+    Presidio/spaCy pipeline. Returns True when the text could plausibly contain
+    a supported entity:
+
+    * contains ``@``                         → EMAIL_ADDRESS / IN_UPI_ID
+    * contains a digit                       → Aadhaar/PAN/GSTIN/phone/IFSC/
+                                               passport/DL/voter/bank/card/IP/IBAN
+    * contains a capitalised alphabetic token → PERSON / LOCATION
+
+    Boolean flags, enum codes and short lowercase tokens are skipped, avoiding
+    NLP work on the overwhelming majority of non-PII database/object values.
+    """
+    if len(text) < 2:
+        return False
+    if "@" in text:
+        return True
+    for ch in text:
+        if ch.isdigit():
+            return True
+    for tok in text.split():
+        if len(tok) >= 2 and tok[0].isupper() and tok[1].islower():
+            return True
+    return False

@@ -7,6 +7,7 @@ interface AuthStore {
   token: string | null;
   refreshToken: string | null;
   isAuthenticated: boolean;
+  hydrated: boolean;
   setAuth: (user: User, token: string, refreshToken: string) => void;
   logout: () => void;
   updateUser: (user: User) => void;
@@ -18,11 +19,12 @@ export const useAuthStore = create<AuthStore>((set) => ({
   token: null,
   refreshToken: null,
   isAuthenticated: false,
+  hydrated: false,
 
   setAuth: (user, token, refreshToken) => {
-    // Set tokens with 1 day expiry for better UX
-    Cookie.set('accessToken', token, { expires: 1 });
-    Cookie.set('refreshToken', refreshToken, { expires: 1 });
+    // Access token ~ short-lived session cookie; refresh token kept up to 7 days.
+    Cookie.set('accessToken', token, { expires: 1, sameSite: 'lax' });
+    Cookie.set('refreshToken', refreshToken, { expires: 7, sameSite: 'lax' });
     // Also store user in localStorage for persistence
     if (typeof window !== 'undefined') {
       localStorage.setItem('user', JSON.stringify(user));
@@ -79,6 +81,7 @@ export const useAuthStore = create<AuthStore>((set) => ({
         refreshToken,
         user,
         isAuthenticated: true,
+        hydrated: true,
       });
     } else {
       // Ensure we're explicitly not authenticated if tokens are missing
@@ -87,6 +90,7 @@ export const useAuthStore = create<AuthStore>((set) => ({
         refreshToken: null,
         user: null,
         isAuthenticated: false,
+        hydrated: true,
       });
     }
   },

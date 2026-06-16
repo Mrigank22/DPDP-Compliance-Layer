@@ -26,6 +26,7 @@ app = Celery(
         "app.tasks.rights",
         "app.tasks.reports",
         "app.tasks.notifications",
+        "app.tasks.posture",
     ],
 )
 
@@ -70,6 +71,7 @@ app.conf.update(
     task_default_queue="discovery",
     task_routes={
         "app.tasks.discovery.*":      {"queue": "discovery"},
+        "app.tasks.posture.*":        {"queue": "discovery"},
         "app.tasks.classification.*": {"queue": "classification"},
         "app.tasks.rights.*":         {"queue": "rights"},
         "app.tasks.reports.*":        {"queue": "reports"},
@@ -85,6 +87,10 @@ app.conf.update(
         "check-overdue-rights-requests": {
             "task": "app.tasks.rights.check_overdue_requests",
             "schedule": 900.0,   # every 15 minutes
+        },
+        "posture-checks-every-6h": {
+            "task": "app.tasks.posture.run_scheduled_posture_checks",
+            "schedule": 21600.0,  # every 6 hours
         },
         "retention-policy-enforcement": {
             "task": "app.tasks.classification.enforce_retention_policies",

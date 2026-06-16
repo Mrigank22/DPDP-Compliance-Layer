@@ -1,0 +1,266 @@
+{{- if .Values.workers.enabled }}
+{{- $root := . }}
+{{- $cm := include "datasentinel.workers.fullname" . }}
+{{- range $q := .Values.workers.queues }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "datasentinel.workers.fullname" $root }}-{{ $q.name }}
+  namespace: {{ $root.Release.Namespace }}
+  labels:
+    {{- include "datasentinel.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: workers
+    datasentinel.io/queue: {{ $q.name }}
+spec:
+  replicas: {{ $q.replicaCount | default 1 }}
+  selector:
+    matchLabels:
+      {{- include "datasentinel.selectorLabels" $root | nindent 6 }}
+      app.kubernetes.io/component: workers
+      datasentinel.io/queue: {{ $q.name }}
+  template:
+    metadata:
+      labels:
+        {{- include "datasentinel.selectorLabels" $root | nindent 8 }}
+        app.kubernetes.io/component: workers
+        datasentinel.io/queue: {{ $q.name }}
+        {{- with $root.Values.workers.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        checksum/config: {{ include (print $root.Template.BasePath "/configmaps.yaml") $root | sha256sum }}
+        checksum/secret: {{ include (print $root.Template.BasePath "/secrets.yaml") $root | sha256sum }}
+        {{- with $root.Values.workers.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- include "datasentinel.imagePullSecrets" $root | nindent 6 }}
+      serviceAccountName: {{ include "datasentinel.serviceAccountName" $root }}
+      securityContext:
+        {{- toYaml $root.Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: worker-{{ $q.name }}
+          image: {{ include "datasentinel.image" (dict "root" $root "svc" $root.Values.workers) }}
+          imagePullPolicy: {{ $root.Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml $root.Values.securityContext | nindent 12 }}
+          command:
+            - celery
+            - -A
+            - app.celery_app
+            - worker
+            - --loglevel={{ $root.Values.workers.logLevel }}
+            - --queues={{ $q.name }}
+            - --concurrency={{ $q.concurrency | default 2 }}
+            - --hostname={{ $q.name }}@%h
+          envFrom:
+            - configMapRef:
+                name: {{ $cm }}
+            - secretRef:
+                name: {{ $cm }}
+          {{- with $root.Values.workers.extraEnv }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- if $root.Values.workers.gcp.credentialsSecret }}
+          volumeMounts:
+            - name: gcp-credentials
+              mountPath: /var/secrets/gcp
+              readOnly: true
+          {{- end }}
+          {{- if $root.Values.workers.probes.enabled }}
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - celery -A app.celery_app inspect ping -d {{ $q.name }}@$(hostname) -t {{ $root.Values.workers.probes.timeoutSeconds }}
+            initialDelaySeconds: {{ $root.Values.workers.probes.initialDelaySeconds }}
+            periodSeconds: {{ $root.Values.workers.probes.periodSeconds }}
+            timeoutSeconds: {{ add $root.Values.workers.probes.timeoutSeconds 5 }}
+            failureThreshold: {{ $root.Values.workers.probes.failureThreshold }}
+          {{- end }}
+          resources:
+            {{- toYaml ($q.resources | default $root.Values.workers.resources) | nindent 12 }}
+      {{- if $root.Values.workers.gcp.credentialsSecret }}
+      volumes:
+        - name: gcp-credentials
+          secret:
+            secretName: {{ $root.Values.workers.gcp.credentialsSecret }}
+            items:
+              - key: credentials.json
+                path: credentials.json
+      {{- end }}
+      {{- with $root.Values.workers.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $root.Values.workers.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $root.Values.workers.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+{{- end }}
+{{- if .Values.workers.beat.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "datasentinel.workers.fullname" . }}-beat
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "datasentinel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: workers
+    datasentinel.io/queue: beat
+spec:
+  # Beat MUST run as a single replica to avoid duplicate scheduled tasks.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "datasentinel.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: workers
+      datasentinel.io/queue: beat
+  template:
+    metadata:
+      labels:
+        {{- include "datasentinel.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: workers
+        datasentinel.io/queue: beat
+        {{- with .Values.workers.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmaps.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secrets.yaml") . | sha256sum }}
+        {{- with .Values.workers.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- include "datasentinel.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ include "datasentinel.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: beat
+          image: {{ include "datasentinel.image" (dict "root" $ "svc" .Values.workers) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          command:
+            - celery
+            - -A
+            - app.celery_app
+            - beat
+            - --loglevel={{ .Values.workers.logLevel }}
+            - --schedule=/tmp/celerybeat-schedule
+            - --scheduler=celery.schedulers:PersistentScheduler
+          envFrom:
+            - configMapRef:
+                name: {{ include "datasentinel.workers.fullname" . }}
+            - secretRef:
+                name: {{ include "datasentinel.workers.fullname" . }}
+          {{- with .Values.workers.extraEnv }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: beat-schedule
+              mountPath: /tmp
+          resources:
+            {{- toYaml .Values.workers.beat.resources | nindent 12 }}
+      volumes:
+        - name: beat-schedule
+          emptyDir: {}
+      {{- with .Values.workers.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.workers.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.workers.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
+{{- if .Values.workers.flower.enabled }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "datasentinel.workers.fullname" . }}-flower
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "datasentinel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: flower
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "datasentinel.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: flower
+  template:
+    metadata:
+      labels:
+        {{- include "datasentinel.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: flower
+      annotations:
+        checksum/secret: {{ include (print $.Template.BasePath "/secrets.yaml") . | sha256sum }}
+    spec:
+      {{- include "datasentinel.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ include "datasentinel.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: flower
+          image: {{ include "datasentinel.image" (dict "root" $ "svc" .Values.workers) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          command:
+            - celery
+            - -A
+            - app.celery_app
+            - flower
+            - --port={{ .Values.workers.flower.port }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "datasentinel.workers.fullname" . }}
+            - secretRef:
+                name: {{ include "datasentinel.workers.fullname" . }}
+          ports:
+            - name: flower
+              containerPort: {{ .Values.workers.flower.port }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: flower
+            initialDelaySeconds: 20
+            periodSeconds: 30
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /
+              port: flower
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 5
+          resources:
+            {{- toYaml .Values.workers.flower.resources | nindent 12 }}
+      {{- with .Values.workers.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.workers.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
+{{- end }}

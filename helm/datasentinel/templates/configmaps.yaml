@@ -1,0 +1,149 @@
+{{/* Non-secret configuration for each service. */}}
+{{- if .Values.controlPlane.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "datasentinel.controlPlane.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "datasentinel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: control-plane
+  {{- with (include "datasentinel.annotations" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
+data:
+  ENV: {{ .Values.controlPlane.env | quote }}
+  PORT: {{ .Values.controlPlane.port | quote }}
+  BASE_URL: {{ .Values.controlPlane.baseUrl | quote }}
+  ALLOWED_ORIGINS: {{ .Values.controlPlane.allowedOrigins | quote }}
+  LOG_LEVEL: {{ .Values.controlPlane.logLevel | quote }}
+  MIGRATIONS_PATH: "/app/migrations"
+  DB_MAX_OPEN_CONNS: {{ .Values.database.maxOpenConns | quote }}
+  DB_MAX_IDLE_CONNS: {{ .Values.database.maxIdleConns | quote }}
+  DB_CONN_LIFETIME: {{ .Values.database.connLifetime | quote }}
+  CLICKHOUSE_URL: {{ include "datasentinel.clickhouseNative" . | quote }}
+  CLICKHOUSE_USER: {{ .Values.clickhouse.user | quote }}
+  CLICKHOUSE_DATABASE: {{ .Values.clickhouse.database | quote }}
+  JWT_PRIVATE_KEY_PATH: "/etc/datasentinel/jwt/jwt_private.pem"
+  JWT_PUBLIC_KEY_PATH: "/etc/datasentinel/jwt/jwt_public.pem"
+  JWT_ACCESS_TOKEN_TTL: {{ .Values.jwt.accessTokenTTL | quote }}
+  JWT_REFRESH_TOKEN_TTL: {{ .Values.jwt.refreshTokenTTL | quote }}
+  AUTH_RATE_LIMIT_RPM: {{ .Values.controlPlane.rateLimit.authRpm | quote }}
+  API_RATE_LIMIT_RPM: {{ .Values.controlPlane.rateLimit.apiRpm | quote }}
+  SMTP_PORT: {{ .Values.controlPlane.smtp.port | quote }}
+  SMTP_FROM: {{ .Values.controlPlane.smtp.from | quote }}
+  AWS_REGION: {{ .Values.controlPlane.aws.region | quote }}
+  S3_REPORTS_BUCKET: {{ .Values.controlPlane.aws.s3ReportsBucket | quote }}
+  OTLP_ENDPOINT: {{ .Values.controlPlane.otlpEndpoint | quote }}
+  PHONE_HOME_DISABLED: {{ .Values.controlPlane.phoneHome.disabled | quote }}
+  PHONE_HOME_URL: {{ .Values.controlPlane.phoneHome.url | quote }}
+  DEPLOYMENT_ID: {{ .Values.controlPlane.phoneHome.deploymentId | default .Release.Name | quote }}
+{{- end }}
+{{- if .Values.gateway.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "datasentinel.gateway.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "datasentinel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway
+  {{- with (include "datasentinel.annotations" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
+data:
+  ENV: {{ .Values.gateway.env | quote }}
+  HTTP_PORT: {{ .Values.gateway.httpPort | quote }}
+  HTTPS_PORT: {{ .Values.gateway.httpsPort | quote }}
+  METRICS_PORT: {{ .Values.gateway.httpPort | quote }}
+  LOG_LEVEL: {{ .Values.gateway.logLevel | quote }}
+  SERVICE_NAME: {{ .Values.gateway.serviceName | quote }}
+  CONTROL_PLANE_URL: {{ printf "http://%s:%v" (include "datasentinel.controlPlane.fullname" .) .Values.controlPlane.service.port | quote }}
+  CLICKHOUSE_URL: {{ include "datasentinel.clickhouseHttp" . | quote }}
+  CLICKHOUSE_USER: {{ .Values.clickhouse.user | quote }}
+  CLICKHOUSE_DATABASE: {{ .Values.clickhouse.database | quote }}
+  UPSTREAM_DIAL_TIMEOUT: {{ .Values.gateway.proxy.dialTimeout | quote }}
+  UPSTREAM_READ_TIMEOUT: {{ .Values.gateway.proxy.readTimeout | quote }}
+  UPSTREAM_WRITE_TIMEOUT: {{ .Values.gateway.proxy.writeTimeout | quote }}
+  MAX_BODY_BYTES: {{ .Values.gateway.proxy.maxBodyBytes | quote }}
+  PII_SCORE_THRESHOLD: {{ .Values.gateway.detection.scoreThreshold | quote }}
+  MAX_DETECT_WORKERS: {{ .Values.gateway.detection.maxWorkers | quote }}
+  {{- if .Values.gateway.jwtVerification.enabled }}
+  JWT_PUBLIC_KEY_PATH: "/etc/datasentinel/jwt/jwt_public.pem"
+  {{- else }}
+  JWT_PUBLIC_KEY_PATH: ""
+  {{- end }}
+  {{- if .Values.gateway.tls.enabled }}
+  TLS_CERT_FILE: "/etc/datasentinel/tls/tls.crt"
+  TLS_KEY_FILE: "/etc/datasentinel/tls/tls.key"
+  {{- else }}
+  TLS_CERT_FILE: ""
+  TLS_KEY_FILE: ""
+  {{- end }}
+{{- end }}
+{{- if .Values.workers.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "datasentinel.workers.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "datasentinel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: workers
+  {{- with (include "datasentinel.annotations" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
+data:
+  ENVIRONMENT: {{ .Values.workers.environment | quote }}
+  LOG_LEVEL: {{ .Values.workers.logLevel | quote }}
+  SERVICE_NAME: {{ .Values.workers.serviceName | quote }}
+  CONTROL_PLANE_URL: {{ printf "http://%s:%v" (include "datasentinel.controlPlane.fullname" .) .Values.controlPlane.service.port | quote }}
+  CLICKHOUSE_URL: {{ include "datasentinel.clickhouseHttp" . | quote }}
+  CLICKHOUSE_USER: {{ .Values.clickhouse.user | quote }}
+  CLICKHOUSE_DATABASE: {{ .Values.clickhouse.database | quote }}
+  AWS_REGION: {{ .Values.workers.aws.region | quote }}
+  AWS_ROLE_ARN: {{ .Values.workers.aws.roleArn | quote }}
+  S3_REPORTS_BUCKET: {{ .Values.workers.aws.s3ReportsBucket | quote }}
+  REPORT_URL_TTL_SECONDS: {{ .Values.workers.reportUrlTtlSeconds | quote }}
+  PRESIDIO_SCORE_THRESHOLD: {{ .Values.workers.presidioScoreThreshold | quote }}
+  SPACY_MODEL: {{ .Values.workers.spacyModel | quote }}
+  MAX_SAMPLE_SIZE: {{ .Values.workers.maxSampleSize | quote }}
+  SCAN_BATCH_SIZE: {{ .Values.workers.scanBatchSize | quote }}
+  S3_MAX_OBJECTS_PER_SCAN: {{ .Values.workers.s3MaxObjectsPerScan | quote }}
+  DEBUG_SQL: {{ .Values.workers.debugSql | quote }}
+  {{- if .Values.workers.gcp.credentialsSecret }}
+  GOOGLE_APPLICATION_CREDENTIALS: {{ .Values.workers.gcp.credentialsPath | quote }}
+  {{- end }}
+{{- end }}
+{{- if .Values.frontend.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "datasentinel.frontend.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "datasentinel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: frontend
+  {{- with (include "datasentinel.annotations" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
+data:
+  NODE_ENV: "production"
+  PORT: {{ .Values.frontend.port | quote }}
+  HOSTNAME: "0.0.0.0"
+  NEXT_PUBLIC_API_URL: {{ .Values.frontend.apiUrl | quote }}
+  NEXT_PUBLIC_APP_NAME: {{ .Values.frontend.appName | quote }}
+  NEXT_PUBLIC_API_TIMEOUT: {{ .Values.frontend.apiTimeout | quote }}
+  NEXT_PUBLIC_ENABLE_ANALYTICS: {{ .Values.frontend.enableAnalytics | quote }}
+  NEXT_PUBLIC_ENABLE_SENTRY: {{ .Values.frontend.enableSentry | quote }}
+  {{- if and .Values.frontend.enableSentry .Values.frontend.sentryDsn }}
+  NEXT_PUBLIC_SENTRY_DSN: {{ .Values.frontend.sentryDsn | quote }}
+  {{- end }}
+{{- end }}

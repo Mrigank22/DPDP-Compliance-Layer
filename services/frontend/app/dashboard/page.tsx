@@ -1,318 +1,506 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { motion } from "framer-motion";
-import { AlertCircle, TrendingUp, Shield, AlertTriangle, Database } from "lucide-react";
-import { apiClient } from "@/lib/api-client";
-import { DashboardStats, DPDPStatus, GatewayStats } from "@/types/api";
-import { Card } from "@/components/ui/card";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import {
+  Activity,
+  Database,
+  ShieldAlert,
+  ShieldCheck,
+  Bug,
+  BellRing,
+  FileBarChart,
+  Plus,
+  UserCheck,
+  ArrowRight,
+  CheckCircle2,
+  AlertTriangle,
+  CircleSlash,
+  Gauge,
+  Clock,
+  GitBranch,
+} from "lucide-react";
+import { dashboardAPI } from "@/lib/api/dashboard";
+import { findingsAPI } from "@/lib/api/findings";
+import { rightsAPI } from "@/lib/api/rights";
+import { gatewayAPI } from "@/lib/api/gateway";
+import type { DashboardSummary, DPDPStatus, TrendPoint } from "@/types/api";
+import { PageHeader, Panel } from "@/components/common/panel";
+import { StatCard } from "@/components/common/stat-card";
+import { Stagger } from "@/components/common/reveal";
+import { CardSkeleton, Skeleton, EmptyState } from "@/components/common/states";
+import { RiskScore, SeverityBadge } from "@/components/common/indicators";
+import { ComplianceGauge } from "@/components/dashboard/compliance-gauge";
+import { PiiDonut, FindingsTrend, SeverityBars } from "@/components/dashboard/charts";
+import { OnboardingChecklist } from "@/components/dashboard/onboarding-checklist";
+import { DataFlowMap } from "@/components/dashboard/data-flow-map";
+import { Button } from "@/components/ui/button";
+import { formatRelativeTime, formatDate } from "@/lib/utils/helpers";
+import { ASSET_TYPE_LABELS, ALERT_TYPE_LABELS, RIGHTS_TYPE_LABELS, label } from "@/lib/utils/labels";
 
-// Stats Card Component
-const StatsCard = ({
-  icon: Icon,
-  title,
-  value,
-  change,
-  color,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  value: string | number;
-  change?: string;
-  color: string;
-}) => (
-  <motion.div
-    initial={{ opacity: 0, y: 20 }}
-    animate={{ opacity: 1, y: 0 }}
-    transition={{ duration: 0.3 }}
-  >
-    <Card className="p-6 border-slate-700 bg-slate-800">
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-slate-400 text-sm font-medium">{title}</p>
-          <p className={`text-3xl font-bold mt-2 ${color}`}>{value}</p>
-          {change && (
-            <p className="text-xs text-slate-400 mt-2">{change}</p>
-          )}
-        </div>
-        <div className={`p-3 rounded-lg ${color.replace("text-", "bg-").replace("600", "600").replace("500", "500")} bg-opacity-20`}>
-          {Icon}
-        </div>
-      </div>
-    </Card>
-  </motion.div>
-);
-
-// Risk Gauge Component
-const RiskGauge = ({ score }: { score: number }) => {
-  const percentage = (score / 100) * 100;
-  const color = score <= 30 ? "text-green-500" : score <= 70 ? "text-yellow-500" : "text-red-500";
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, scale: 0.9 }}
-      animate={{ opacity: 1, scale: 1 }}
-      transition={{ duration: 0.4 }}
-    >
-      <Card className="p-8 border-slate-700 bg-slate-800">
-        <h3 className="text-lg font-semibold text-slate-100 mb-6">Risk Score</h3>
-        <div className="flex items-center justify-center">
-          <div className="relative w-40 h-40">
-            <svg className="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
-              <circle
-                cx="50"
-                cy="50"
-                r="45"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="4"
-                className="text-slate-700"
-              />
-              <motion.circle
-                cx="50"
-                cy="50"
-                r="45"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="4"
-                strokeDasharray={`${percentage * 2.83} 283`}
-                className={color}
-                initial={{ strokeDasharray: "0 283" }}
-                animate={{ strokeDasharray: `${percentage * 2.83} 283` }}
-                transition={{ duration: 1, ease: "easeOut" }}
-                strokeLinecap="round"
-              />
-            </svg>
-            <div className="absolute inset-0 flex items-center justify-center">
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 0.5 }}
-              >
-                <span className={`text-4xl font-bold ${color}`}>{score}</span>
-              </motion.div>
-            </div>
-          </div>
-        </div>
-        <p className="text-center text-slate-400 text-sm mt-4">
-          {score <= 30
-            ? "Low Risk - Excellent Compliance"
-            : score <= 70
-            ? "Medium Risk - Review Required"
-            : "High Risk - Immediate Action Needed"}
-        </p>
-      </Card>
-    </motion.div>
-  );
+const DPDP_ICON = {
+  compliant: CheckCircle2,
+  gap: AlertTriangle,
+  non_compliant: CircleSlash,
+};
+const DPDP_TONE = {
+  compliant: "text-accent",
+  gap: "text-medium",
+  non_compliant: "text-critical",
 };
 
-// PII Distribution Chart
-const PIIDistribution = ({ data }: { data: Record<string, number> }) => {
-  const total = Object.values(data).reduce((a, b) => a + b, 0);
-  const colors = {
-    aadhaar: "bg-blue-600",
-    pan: "bg-purple-600",
-    phone: "bg-pink-600",
-    email: "bg-yellow-600",
-    bank_account: "bg-green-600",
-    upi: "bg-indigo-600",
-    other: "bg-slate-600",
-  };
+function normalizeTrend(points: TrendPoint[] | undefined) {
+  if (!Array.isArray(points)) return [];
+  return points.map((p) => {
+    const raw = p as unknown as Record<string, unknown>;
+    const bySev = (raw.by_severity as Record<string, number>) ?? {};
+    const dateVal = (raw.date ?? raw.day ?? raw.ts ?? "") as string;
+    const short = dateVal ? dateVal.slice(5, 10) : "";
+    const num = (k: string) =>
+      Number(raw[k] ?? bySev[k] ?? 0) || 0;
+    return {
+      date: short,
+      critical: num("critical"),
+      high: num("high"),
+      medium: num("medium"),
+      low: num("low"),
+    };
+  });
+}
 
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3, delay: 0.1 }}
-    >
-      <Card className="p-6 border-slate-700 bg-slate-800">
-        <h3 className="text-lg font-semibold text-slate-100 mb-6">PII Distribution</h3>
-        <div className="space-y-3">
-          {Object.entries(data).map(([type, count]) => (
-            <div key={type}>
-              <div className="flex justify-between mb-1">
-                <span className="text-sm text-slate-300 capitalize">{type}</span>
-                <span className="text-sm font-semibold text-slate-200">
-                  {type === "total" ? 0 : Math.round((count / total) * 100)}%
-                </span>
-              </div>
-              <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
-                <motion.div
-                  className={`h-full rounded-full ${colors[type as keyof typeof colors] || colors.other}`}
-                  initial={{ width: 0 }}
-                  animate={{ width: `${(count / total) * 100}%` }}
-                  transition={{ duration: 1, ease: "easeOut" }}
-                />
-              </div>
-            </div>
-          ))}
-        </div>
-      </Card>
-    </motion.div>
-  );
-};
+function daysUntil(due: string) {
+  return Math.ceil((new Date(due).getTime() - Date.now()) / 86_400_000);
+}
 
 export default function DashboardPage() {
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  const { data: dashboard } = useQuery({
-    queryKey: ["dashboard"],
-    queryFn: async () => {
-      const response = await apiClient.get("/dashboard");
-      return response.data.data;
-    },
+  const summaryQ = useQuery({
+    queryKey: ["dashboard", "summary"],
+    queryFn: () => dashboardAPI.getSummary().then((r) => r.data),
+  });
+  const dpdpQ = useQuery({
+    queryKey: ["dashboard", "dpdp"],
+    queryFn: () => dashboardAPI.getDPDPStatus().then((r) => r.data),
+  });
+  const findingsSummaryQ = useQuery({
+    queryKey: ["findings", "summary"],
+    queryFn: () => findingsAPI.summary().then((r) => r.data),
+  });
+  const trendsQ = useQuery({
+    queryKey: ["dashboard", "trends"],
+    queryFn: () => dashboardAPI.getTrends(30).then((r) => r.data),
+  });
+  const rightsQ = useQuery({
+    queryKey: ["rights", "upcoming"],
+    queryFn: () => rightsAPI.list({ page_size: 50 }).then((r) => r.data),
+  });
+  const flowsQ = useQuery({
+    queryKey: ["gateway", "flows"],
+    queryFn: () => gatewayAPI.listDataFlows().then((r) => r.data),
   });
 
-  const { data: dpdpStatus } = useQuery({
-    queryKey: ["dpdp-status"],
-    queryFn: async () => {
-      const response = await apiClient.get("/dashboard/dpdp-status");
-      return response.data.data;
-    },
-  });
-
-  const { data: trends } = useQuery({
-    queryKey: ["trends"],
-    queryFn: async () => {
-      const response = await apiClient.get("/dashboard/trends");
-      return response.data.data;
-    },
-  });
-
-  if (!mounted) return null;
-
-  const stats: DashboardStats = dashboard || {
-    total_assets: 0,
-    total_findings: 0,
-    critical_findings: 0,
-    unresolved_violations: 0,
-    risk_score: 0,
-    active_policies: 0,
-  };
-
-  const dpdp: DPDPStatus = dpdpStatus || {
-    compliance_percentage: 0,
-    critical_issues: 0,
-    deadlines_approaching: 0,
-    policies_active: 0,
-  };
+  const s: Partial<DashboardSummary> = summaryQ.data ?? {};
+  const dpdp: DPDPStatus | undefined = dpdpQ.data;
+  const trend = normalizeTrend(trendsQ.data);
+  const upcoming = (rightsQ.data ?? [])
+    .filter((r) => r.status === "received" || r.status === "in_progress")
+    .sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime())
+    .slice(0, 6);
 
   return (
-    <div>
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: 0.3 }}
-        className="mb-8"
-      >
-        <h1 className="text-3xl font-bold text-slate-100 mb-2">Dashboard</h1>
-        <p className="text-slate-400">Welcome back! Here's your DPDP compliance overview.</p>
-      </motion.div>
+    <div className="space-y-6">
+      <PageHeader
+        eyebrow="Live Posture"
+        title="Threat Overview"
+        description="Real-time view of personal-data exposure, enforcement and DPDP readiness."
+        icon={<Gauge className="h-5 w-5" />}
+        actions={
+          <>
+            <Link href="/dashboard/assets">
+              <Button variant="outline" size="sm">
+                <Plus className="h-4 w-4" /> Connect Asset
+              </Button>
+            </Link>
+            <Link href="/dashboard/reports">
+              <Button size="sm">
+                <FileBarChart className="h-4 w-4" /> Generate Report
+              </Button>
+            </Link>
+          </>
+        }
+      />
 
-      {/* Critical Alerts */}
-      {dpdp.critical_issues > 0 && (
-        <motion.div
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3 }}
-          className="mb-6"
+      {!summaryQ.isLoading && <OnboardingChecklist summary={s} />}
+
+      {/* Critical banner */}
+      {(s.critical_findings ?? 0) > 0 && (
+        <Link
+          href="/dashboard/findings?severity=critical"
+          className="flex items-center gap-3 rounded-xl border border-critical/30 bg-critical/8 px-4 py-3 transition-colors hover:bg-critical/12"
         >
-          <Alert variant="destructive" className="bg-red-950 border-red-800">
-            <AlertTriangle className="h-4 w-4" />
-            <AlertDescription>
-              You have {dpdp.critical_issues} critical issues that require immediate attention.
-            </AlertDescription>
-          </Alert>
-        </motion.div>
+          <ShieldAlert className="h-5 w-5 shrink-0 text-critical" />
+          <p className="text-sm text-foreground">
+            <span className="font-semibold text-critical">
+              {s.critical_findings} critical findings
+            </span>{" "}
+            require immediate remediation.
+          </p>
+          <ArrowRight className="ml-auto h-4 w-4 text-critical" />
+        </Link>
       )}
 
-      {/* Top Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-        <StatsCard
-          icon={<Database className="h-6 w-6 text-blue-500" />}
-          title="Connected Assets"
-          value={stats.total_assets}
-          color="text-blue-500"
-        />
-        <StatsCard
-          icon={<AlertTriangle className="h-6 w-6 text-red-500" />}
-          title="Critical Findings"
-          value={stats.critical_findings}
-          change={`${Math.round((stats.critical_findings / Math.max(stats.total_findings, 1)) * 100)}% of total`}
-          color="text-red-500"
-        />
-        <StatsCard
-          icon={<Shield className="h-6 w-6 text-green-500" />}
-          title="Active Policies"
-          value={stats.active_policies}
-          color="text-green-500"
-        />
-        <StatsCard
-          icon={<TrendingUp className="h-6 w-6 text-yellow-500" />}
-          title="Compliance Score"
-          value={`${dpdp.compliance_percentage}%`}
-          change={dpdp.compliance_percentage >= 80 ? "✓ On Track" : "⚠ Needs Review"}
-          color={dpdp.compliance_percentage >= 80 ? "text-green-500" : "text-yellow-500"}
-        />
+      {summaryQ.isLoading ? (
+        <CardSkeleton count={6} />
+      ) : (
+        <Stagger className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-6">
+          <StatCard
+            label="Compliance"
+            value={s.compliance_score ?? 0}
+            suffix="%"
+            tone="accent"
+            icon={<ShieldCheck className="h-4 w-4" />}
+          />
+          <StatCard
+            label="Assets"
+            value={s.total_assets ?? 0}
+            icon={<Database className="h-4 w-4" />}
+            href="/dashboard/assets"
+          />
+          <StatCard
+            label="PII Exposed"
+            value={s.pii_records_exposed ?? 0}
+            tone="medium"
+            icon={<Activity className="h-4 w-4" />}
+            href="/dashboard/findings?type=pii_exposure"
+          />
+          <StatCard
+            label="Open Findings"
+            value={s.open_findings ?? 0}
+            tone="high"
+            icon={<Bug className="h-4 w-4" />}
+            href="/dashboard/findings"
+          />
+          <StatCard
+            label="Critical"
+            value={s.critical_findings ?? 0}
+            tone="critical"
+            icon={<ShieldAlert className="h-4 w-4" />}
+            href="/dashboard/findings?severity=critical"
+          />
+          <StatCard
+            label="Alerts"
+            value={s.unacknowledged_alerts ?? 0}
+            tone="low"
+            icon={<BellRing className="h-4 w-4" />}
+            href="/dashboard/alerts"
+          />
+        </Stagger>
+      )}
+
+      {/* Gauge + DPDP + PII */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <Panel title="Compliance Posture" subtitle="DPDP readiness index" glow>
+          {summaryQ.isLoading ? (
+            <Skeleton className="mx-auto h-52 w-52 rounded-full" />
+          ) : (
+            <div className="flex flex-col items-center gap-5 py-2">
+              <ComplianceGauge score={s.compliance_score ?? 0} />
+              <div className="grid w-full grid-cols-3 gap-2 text-center">
+                <div className="rounded-lg border border-border bg-surface-2/50 py-2">
+                  <p className="font-display text-lg font-bold text-foreground">
+                    {s.active_policies ?? 0}
+                  </p>
+                  <p className="font-mono text-[10px] uppercase tracking-wide text-faint">
+                    Policies
+                  </p>
+                </div>
+                <div className="rounded-lg border border-border bg-surface-2/50 py-2">
+                  <p className="font-display text-lg font-bold text-foreground">
+                    {s.overdue_rights_requests ?? 0}
+                  </p>
+                  <p className="font-mono text-[10px] uppercase tracking-wide text-faint">
+                    Overdue DSR
+                  </p>
+                </div>
+                <div className="rounded-lg border border-border bg-surface-2/50 py-2">
+                  <p className="font-display text-lg font-bold text-foreground">
+                    {s.last_scan_at ? formatRelativeTime(s.last_scan_at).replace(" ago", "") : "—"}
+                  </p>
+                  <p className="font-mono text-[10px] uppercase tracking-wide text-faint">
+                    Last Scan
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+        </Panel>
+
+        <Panel
+          title="DPDP Control Status"
+          subtitle="Statutory requirement checks"
+          actions={
+            dpdp && (
+              <SeverityBadge
+                severity={
+                  dpdp.overall_status === "compliant"
+                    ? "low"
+                    : dpdp.overall_status === "gap"
+                      ? "medium"
+                      : "critical"
+                }
+              />
+            )
+          }
+        >
+          {dpdpQ.isLoading ? (
+            <div className="space-y-2">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <Skeleton key={i} className="h-10" />
+              ))}
+            </div>
+          ) : dpdp && dpdp.checks?.length ? (
+            <div className="space-y-1.5">
+              {dpdp.checks.slice(0, 6).map((c, i) => {
+                const Icon = DPDP_ICON[c.status] ?? AlertTriangle;
+                return (
+                  <div
+                    key={i}
+                    className="flex items-center gap-3 rounded-lg border border-border/60 bg-surface-2/40 px-3 py-2"
+                  >
+                    <Icon className={`h-4 w-4 shrink-0 ${DPDP_TONE[c.status]}`} />
+                    <span className="truncate text-sm text-foreground">
+                      {c.requirement}
+                    </span>
+                    <span
+                      className={`ml-auto font-mono text-[10px] uppercase tracking-wide ${DPDP_TONE[c.status]}`}
+                    >
+                      {c.status.replace("_", " ")}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <EmptyState
+              title="No DPDP checks yet"
+              description="Connect assets and run a scan to evaluate compliance."
+              className="border-0 bg-transparent py-8"
+            />
+          )}
+        </Panel>
+
+        <Panel title="PII Distribution" subtitle="Detected personal-data types">
+          {findingsSummaryQ.isLoading ? (
+            <Skeleton className="h-52" />
+          ) : (
+            <PiiDonut data={findingsSummaryQ.data?.by_pii_type ?? {}} />
+          )}
+        </Panel>
       </div>
 
-      {/* Risk Score & PII Distribution */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-        <div className="lg:col-span-1">
-          <RiskGauge score={stats.risk_score} />
-        </div>
-        <div className="lg:col-span-2">
-          <PIIDistribution data={dashboard?.pii_distribution || {}} />
-        </div>
+      {/* Trend + severity */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <Panel
+          title="Findings Over Time"
+          subtitle="Last 30 days · stacked by severity"
+          className="lg:col-span-2"
+        >
+          {trendsQ.isLoading ? <Skeleton className="h-60" /> : <FindingsTrend data={trend} />}
+        </Panel>
+        <Panel title="Severity Breakdown" subtitle="Open findings">
+          {summaryQ.isLoading ? (
+            <Skeleton className="h-48" />
+          ) : (
+            <SeverityBars data={s.findings_by_severity ?? {}} />
+          )}
+        </Panel>
       </div>
 
-      {/* DPDP Compliance Status */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.3, delay: 0.2 }}
-      >
-        <Card className="p-6 border-slate-700 bg-slate-800">
-          <h3 className="text-lg font-semibold text-slate-100 mb-4">DPDP Compliance Status</h3>
-          <div className="space-y-3">
-            <div className="flex justify-between items-center pb-3 border-b border-slate-700">
-              <span className="text-slate-300">Compliance Score</span>
-              <span className="text-2xl font-bold text-green-500">{dpdp.compliance_percentage}%</span>
+      {/* Deadlines + data flow map */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <Panel
+          title="Compliance Calendar"
+          subtitle="Upcoming DPDP rights deadlines"
+          actions={
+            <Link href="/dashboard/rights" className="font-mono text-xs text-accent hover:underline">
+              view all →
+            </Link>
+          }
+        >
+          {rightsQ.isLoading ? (
+            <div className="space-y-2">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <Skeleton key={i} className="h-12" />
+              ))}
             </div>
-            <div className="flex justify-between items-center pb-3 border-b border-slate-700">
-              <span className="text-slate-300">Critical Issues</span>
-              <span className={`font-semibold ${dpdp.critical_issues > 0 ? "text-red-500" : "text-green-500"}`}>
-                {dpdp.critical_issues}
-              </span>
+          ) : upcoming.length === 0 ? (
+            <EmptyState
+              icon={<Clock className="h-6 w-6" />}
+              title="No open deadlines"
+              description="DSR due dates will appear here against the 90-day SLA."
+              className="border-0 bg-transparent py-8"
+            />
+          ) : (
+            <div className="space-y-1.5">
+              {upcoming.map((r) => {
+                const left = daysUntil(r.due_date);
+                const tone = left < 0 ? "text-critical" : left <= 14 ? "text-medium" : "text-muted";
+                return (
+                  <Link
+                    key={r.id}
+                    href="/dashboard/rights"
+                    className="flex items-center gap-3 rounded-lg border border-border/60 bg-surface-2/40 px-3 py-2.5 transition-colors hover:border-border-bright"
+                  >
+                    <div className="flex h-9 w-9 shrink-0 flex-col items-center justify-center rounded-lg border border-border bg-surface">
+                      <span className="font-display text-sm font-bold leading-none text-foreground">
+                        {new Date(r.due_date).getDate()}
+                      </span>
+                      <span className="font-mono text-[8px] uppercase text-faint">
+                        {new Date(r.due_date).toLocaleString("en-IN", { month: "short" })}
+                      </span>
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-foreground">
+                        {r.data_principal_email}
+                      </p>
+                      <p className="font-mono text-[11px] text-faint">
+                        {label(RIGHTS_TYPE_LABELS, r.request_type)} · due {formatDate(r.due_date)}
+                      </p>
+                    </div>
+                    <span className={`font-mono text-[11px] ${tone}`}>
+                      {left < 0 ? `${Math.abs(left)}d over` : `${left}d`}
+                    </span>
+                  </Link>
+                );
+              })}
             </div>
-            <div className="flex justify-between items-center pb-3 border-b border-slate-700">
-              <span className="text-slate-300">Deadlines Approaching</span>
-              <span className="font-semibold text-yellow-500">{dpdp.deadlines_approaching}</span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-slate-300">Active Policies</span>
-              <span className="font-semibold text-blue-500">{dpdp.policies_active}</span>
-            </div>
-          </div>
-        </Card>
-      </motion.div>
+          )}
+        </Panel>
 
-      {/* Footer Info */}
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: 0.3, delay: 0.4 }}
-        className="mt-8 text-center text-slate-500 text-sm"
-      >
-        <p>Last updated: {new Date().toLocaleString()}</p>
-      </motion.div>
+        <Panel
+          title="Data Flow Map"
+          subtitle="Where personal data leaves your estate"
+          className="lg:col-span-2"
+          actions={
+            <Link href="/dashboard/gateway" className="font-mono text-xs text-accent hover:underline">
+              <GitBranch className="mr-1 inline h-3 w-3" /> gateway
+            </Link>
+          }
+        >
+          {flowsQ.isLoading ? (
+            <div className="h-64 skeleton rounded-lg" />
+          ) : (
+            <DataFlowMap flows={flowsQ.data ?? []} />
+          )}
+        </Panel>
+      </div>
+
+      {/* Risk assets + recent alerts */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <Panel
+          title="Top Risk Assets"
+          actions={
+            <Link
+              href="/dashboard/assets"
+              className="font-mono text-xs text-accent hover:underline"
+            >
+              view all →
+            </Link>
+          }
+        >
+          {summaryQ.isLoading ? (
+            <div className="space-y-2">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <Skeleton key={i} className="h-12" />
+              ))}
+            </div>
+          ) : s.top_risk_assets?.length ? (
+            <div className="space-y-1.5">
+              {s.top_risk_assets.slice(0, 5).map((a) => (
+                <Link
+                  key={a.id}
+                  href={`/dashboard/assets/${a.id}`}
+                  className="flex items-center gap-3 rounded-lg border border-border/60 bg-surface-2/40 px-3 py-2.5 transition-colors hover:border-border-bright"
+                >
+                  <Database className="h-4 w-4 shrink-0 text-muted" />
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-foreground">
+                      {a.name}
+                    </p>
+                    <p className="font-mono text-[11px] text-faint">
+                      {label(ASSET_TYPE_LABELS, a.asset_type)}
+                    </p>
+                  </div>
+                  <div className="ml-auto">
+                    <RiskScore score={a.risk_score} />
+                  </div>
+                </Link>
+              ))}
+            </div>
+          ) : (
+            <EmptyState
+              icon={<Database className="h-6 w-6" />}
+              title="No assets connected"
+              description="Connect your first data source to begin discovery."
+              action={
+                <Link href="/dashboard/assets">
+                  <Button size="sm">
+                    <Plus className="h-4 w-4" /> Connect Asset
+                  </Button>
+                </Link>
+              }
+              className="border-0 bg-transparent py-8"
+            />
+          )}
+        </Panel>
+
+        <Panel
+          title="Recent Alerts"
+          actions={
+            <Link
+              href="/dashboard/alerts"
+              className="font-mono text-xs text-accent hover:underline"
+            >
+              view all →
+            </Link>
+          }
+        >
+          {summaryQ.isLoading ? (
+            <div className="space-y-2">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <Skeleton key={i} className="h-12" />
+              ))}
+            </div>
+          ) : s.recent_alerts?.length ? (
+            <div className="space-y-1.5">
+              {s.recent_alerts.slice(0, 5).map((al) => (
+                <div
+                  key={al.id}
+                  className="flex items-start gap-3 rounded-lg border border-border/60 bg-surface-2/40 px-3 py-2.5"
+                >
+                  <BellRing className="mt-0.5 h-4 w-4 shrink-0 text-muted" />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-foreground">
+                      {al.title}
+                    </p>
+                    <p className="font-mono text-[11px] text-faint">
+                      {label(ALERT_TYPE_LABELS, al.alert_type)} ·{" "}
+                      {formatRelativeTime(al.created_at)}
+                    </p>
+                  </div>
+                  <SeverityBadge severity={al.severity} />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <EmptyState
+              icon={<UserCheck className="h-6 w-6" />}
+              title="All clear"
+              description="No alerts to review right now."
+              className="border-0 bg-transparent py-8"
+            />
+          )}
+        </Panel>
+      </div>
     </div>
   );
 }
-

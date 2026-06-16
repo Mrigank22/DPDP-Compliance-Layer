@@ -81,6 +81,41 @@ type GatewayEvent struct {
 	PolicyID            string    `json:"policy_id" ch:"policy_id"`
 }
 
+// GatewayEventFilter is the query filter for listing gateway events from ClickHouse.
+type GatewayEventFilter struct {
+	Action     string     `query:"action"`
+	PIIType    string     `query:"pii_type"`
+	WasLLMCall *bool      `query:"was_llm_call"`
+	Since      *time.Time `query:"since"`
+	Page       int        `query:"page"      validate:"omitempty,min=1"`
+	PageSize   int        `query:"page_size" validate:"omitempty,min=1,max=100"`
+}
+
+// GatewayStatsResponse is the aggregate analytics shape returned to the dashboard.
+type GatewayStatsResponse struct {
+	TotalEvents   int64             `json:"total_events"`
+	Blocked       int64             `json:"blocked"`
+	Masked        int64             `json:"masked"`
+	Redacted      int64             `json:"redacted"`
+	Allowed       int64             `json:"allowed"`
+	Tokenized     int64             `json:"tokenized"`
+	BlockRate     float64           `json:"block_rate"`
+	AvgLatencyMs  float64           `json:"avg_latency_ms"`
+	PIIDetections int64             `json:"pii_detections"`
+	LLMCalls      int64             `json:"llm_calls"`
+	ByAction      map[string]int64  `json:"by_action"`
+	ByPIIType     map[string]int64  `json:"by_pii_type"`
+	Timeline      []GatewayTimeBin  `json:"timeline"`
+	PeriodHours   int               `json:"period_hours"`
+}
+
+// GatewayTimeBin is one hourly bucket in the gateway activity timeline.
+type GatewayTimeBin struct {
+	TS      string `json:"ts"`
+	Count   int64  `json:"count"`
+	Blocked int64  `json:"blocked"`
+}
+
 // ---- DataFlow ---------------------------------------------------------------
 
 type DataFlow struct {

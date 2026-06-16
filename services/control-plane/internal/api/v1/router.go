@@ -34,6 +34,9 @@ type Handlers struct {
 	Health    *HealthHandler
 	Dashboard *DashboardHandler
 	APIKey    *APIKeyHandler
+	Consent   *ConsentHandler
+	Webhook   *WebhookHandler
+	Internal  *InternalHandler
 }
 
 // NewHandlers wires all service dependencies into handler instances.
@@ -63,12 +66,15 @@ func NewHandlers(
 	reportSvc := services.NewReportService(pg, ch, log, workerSvc)
 	gatewaySvc := services.NewGatewayService(pg, ch, log)
 
+	webhookHandler := NewWebhookHandler(pg, log)
+	alertHandler := NewAlertHandler(alertSvc)
+
 	return &Handlers{
 		Auth:      NewAuthHandler(authSvc),
 		Asset:     NewAssetHandler(assetSvc),
 		Policy:    NewPolicyHandler(policySvc),
 		Finding:   NewFindingHandler(findingSvc),
-		Alert:     NewAlertHandler(alertSvc),
+		Alert:     alertHandler,
 		Scan:      NewScanHandler(scanSvc),
 		Rights:    NewRightsHandler(rightsSvc),
 		Report:    NewReportHandler(reportSvc),
@@ -78,6 +84,9 @@ func NewHandlers(
 		Health:    NewHealthHandler(pg, rdb, ch),
 		Dashboard: NewDashboardHandler(pg, findingSvc, alertSvc, log),
 		APIKey:    NewAPIKeyHandler(pg, log),
+		Consent:   NewConsentHandler(pg, log),
+		Webhook:   webhookHandler,
+		Internal:  NewInternalHandler(alertSvc, gatewaySvc, webhookHandler, log),
 	}, nil
 }
 
@@ -111,7 +120,7 @@ func RegisterRoutes(r *gin.Engine, h *Handlers, authSvc *services.AuthService, p
 
 	// ── Authenticated routes ─────────────────────────────────────────────────
 	api := v1.Group("")
-	api.Use(middleware.RequireAuth(authSvc, pg, log))
+	api.Use(middleware.RequireAuth(authSvc, pg, cfg.InternalAPIKey, log))
 	api.Use(middleware.TenantRateLimit(rdb, cfg.APIRateLimitRPM))
 
 	// Auth (requires login)
@@ -165,6 +174,8 @@ func RegisterRoutes(r *gin.Engine, h *Handlers, authSvc *services.AuthService, p
 	{
 		alerts.GET("", h.Alert.List)
 		alerts.GET("/unread", h.Alert.Unread)
+		alerts.GET("/config", h.Webhook.GetNotificationPrefs)
+		alerts.PATCH("/config", middleware.RequireRole(models.RoleAdmin), h.Webhook.UpdateNotificationPrefs)
 		alerts.GET("/:id", h.Alert.Get)
 		alerts.POST("/acknowledge", h.Alert.Acknowledge)
 		alerts.POST("/acknowledge-all", h.Alert.AcknowledgeAll)
@@ -224,6 +235,22 @@ func RegisterRoutes(r *gin.Engine, h *Handlers, authSvc *services.AuthService, p
 		gateway.GET("/data-flows", h.Gateway.ListDataFlows)
 		gateway.POST("/data-flows/:id/approve", middleware.RequireRole(models.RoleAdmin), h.Gateway.ApproveDataFlow)
 		gateway.GET("/stats", h.Gateway.GetStats)
+		gateway.GET("/events", h.Gateway.ListEvents)
+		gateway.GET("/events/live", h.Gateway.StreamEvents)
+	}
+
+	// Webhooks / integrations (Slack, PagerDuty, JIRA, HTTP)
+	RegisterWebhookRoutes(api, h.Webhook)
+
+	// ── Internal service-to-service routes (gateway + workers) ───────────────
+	// Authenticated by the shared internal API key, NOT user JWTs. Tenant scope
+	// comes from the X-Tenant-ID header.
+	internal := v1.Group("/internal")
+	internal.Use(middleware.RequireServiceAuth(cfg.InternalAPIKey, pg))
+	{
+		internal.POST("/alerts", h.Internal.CreateAlert)
+		internal.POST("/alerts/:id/notify", h.Internal.NotifyAlert)
+		internal.POST("/data-flows", h.Internal.UpsertDataFlow)
 	}
 
 	// Team / User management
@@ -248,6 +275,17 @@ func RegisterRoutes(r *gin.Engine, h *Handlers, authSvc *services.AuthService, p
 
 	// Audit Logs
 	api.GET("/audit-logs", middleware.RequireRole(models.RoleAdmin), h.Audit.List)
+
+	// Consent records (DPDP consent ledger)
+	consent := api.Group("/consent")
+	{
+		consent.GET("/summary", h.Consent.Summary)
+		consent.POST("/record", middleware.RequireRole(models.RoleAnalyst), h.Consent.Record)
+		consent.POST("/import", middleware.RequireRole(models.RoleAnalyst), h.Consent.Import)
+		consent.GET("/principal/:id", h.Consent.GetByPrincipal)
+		consent.POST("/withdraw/:id", middleware.RequireRole(models.RoleAnalyst), h.Consent.Withdraw)
+		consent.POST("/withdraw-all/:principal_id", middleware.RequireRole(models.RoleAdmin), h.Consent.WithdrawByPrincipal)
+	}
 
 	// 404 fallback
 	r.NoRoute(func(c *gin.Context) {

@@ -1,22 +1,49 @@
 "use client";
 
-import { useState } from "react";
-import { motion } from "framer-motion";
+import { Suspense, useMemo, useState } from "react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiClient } from "@/lib/api-client";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Database,
+  Plus,
+  ScanLine,
+  Plug,
+  Trash2,
+  Search,
+  Server,
+  HardDrive,
+  Cloud,
+  Boxes,
+  Brain,
+  Globe,
+} from "lucide-react";
+import { assetsAPI } from "@/lib/api/assets";
+import type {
+  Asset,
+  CreateAssetInput,
+  AssetListFilter,
+} from "@/types/api";
+import { ASSET_TYPES, PROVIDERS, ASSET_STATUSES } from "@/types/api";
+import { getApiErrorMessage } from "@/lib/api-client";
+import { toast } from "@/lib/store/toast.store";
+import { PageHeader, Panel } from "@/components/common/panel";
+import { DataTable, THead, TH, TBody, TR, TD } from "@/components/common/table";
+import { TableSkeleton, EmptyState, ErrorState, LoadingPanel } from "@/components/common/states";
+import { StatusPill, RiskScore } from "@/components/common/indicators";
+import { Pager } from "@/components/common/pager";
+import { ConfirmDialog } from "@/components/common/confirm-dialog";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   Select,
   SelectContent,
@@ -24,408 +51,416 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Plus,
-  Shield,
-  AlertTriangle,
-  CheckCircle,
-  Loader2,
-  Trash2,
-  Eye,
-  RefreshCw,
-} from "lucide-react";
-import { ASSET_TYPES, PROVIDERS } from "@/types/api";
+import { ASSET_TYPE_LABELS, PROVIDER_LABELS, label } from "@/lib/utils/labels";
+import { formatRelativeTime } from "@/lib/utils/helpers";
 
+const TYPE_ICON: Record<string, typeof Database> = {
+  s3_bucket: Boxes,
+  rds_instance: Server,
+  gcs_bucket: Cloud,
+  azure_blob: HardDrive,
+  postgresql: Database,
+  api_endpoint: Globe,
+  llm_endpoint: Brain,
+};
 
-export default function AssetsPage() {
-  const queryClient = useQueryClient();
-  const [search, setSearch] = useState("");
-  const [filterType, setFilterType] = useState("all");
-  const [filterStatus, setFilterStatus] = useState("all");
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [formData, setFormData] = useState({
-    name: "",
-    asset_type: "s3_bucket" as typeof ASSET_TYPES[number],
-    provider: "aws" as typeof PROVIDERS[number],
-    region: "",
-    connection_config: {},
-  });
+const CONFIG_HINTS: Record<string, string> = {
+  s3_bucket: '{\n  "bucket": "my-bucket",\n  "arn": "arn:aws:iam::123:role/scan"\n}',
+  rds_instance: '{\n  "host": "db.xxx.rds.amazonaws.com",\n  "port": 5432,\n  "database": "app"\n}',
+  postgresql: '{\n  "host": "10.0.0.5",\n  "port": 5432,\n  "database": "app",\n  "user": "readonly"\n}',
+  gcs_bucket: '{\n  "bucket": "my-gcs-bucket"\n}',
+  azure_blob: '{\n  "container": "data",\n  "account": "storageacct"\n}',
+  api_endpoint: '{\n  "url": "https://api.internal/v1"\n}',
+  llm_endpoint: '{\n  "provider": "openai",\n  "url": "https://api.openai.com/v1"\n}',
+};
 
-  // Fetch assets
-  const { data: assets, isLoading } = useQuery({
-    queryKey: ["assets", search, filterType, filterStatus],
-    queryFn: async () => {
-      const params = new URLSearchParams();
-      if (search) params.append("search", search);
-      if (filterType !== "all") params.append("asset_type", filterType);
-      if (filterStatus !== "all") params.append("status", filterStatus);
-      const response = await apiClient.get(`/assets?${params.toString()}`);
-      return response.data.data || [];
-    },
-  });
+function ConnectAssetModal({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+}) {
+  const qc = useQueryClient();
+  const [name, setName] = useState("");
+  const [assetType, setAssetType] = useState<string>("s3_bucket");
+  const [provider, setProvider] = useState<string>("aws");
+  const [region, setRegion] = useState("ap-south-1");
+  const [config, setConfig] = useState(CONFIG_HINTS.s3_bucket);
+  const [configError, setConfigError] = useState("");
 
-  // Create asset mutation
-  const createAssetMutation = useMutation({
-    mutationFn: async (data: any) => {
-      const response = await apiClient.post("/assets", data);
-      return response.data.data;
-    },
+  const reset = () => {
+    setName("");
+    setAssetType("s3_bucket");
+    setProvider("aws");
+    setRegion("ap-south-1");
+    setConfig(CONFIG_HINTS.s3_bucket);
+    setConfigError("");
+  };
+
+  const create = useMutation({
+    mutationFn: (data: CreateAssetInput) => assetsAPI.create(data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["assets"] });
-      setDialogOpen(false);
-      setFormData({
-        name: "",
-        asset_type: "s3_bucket",
-        provider: "aws",
-        region: "",
-        connection_config: {},
-      });
+      qc.invalidateQueries({ queryKey: ["assets"] });
+      toast.success("Asset connected", "Discovery will begin on the next scan.");
+      reset();
+      onOpenChange(false);
     },
+    onError: (e) => toast.error("Could not connect asset", getApiErrorMessage(e)),
   });
 
-  // Delete asset mutation
-  const deleteAssetMutation = useMutation({
-    mutationFn: async (assetId: string) => {
-      await apiClient.delete(`/assets/${assetId}`);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["assets"] });
-    },
-  });
-
-  // Scan asset mutation
-  const scanAssetMutation = useMutation({
-    mutationFn: async (assetId: string) => {
-      const response = await apiClient.post(`/assets/${assetId}/scan`, {
-        scan_type: "full",
-      });
-      return response.data.data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["assets"] });
-    },
-  });
-
-  const handleCreateAsset = async () => {
-    if (!formData.name) {
-      alert("Asset name is required");
+  const submit = () => {
+    let parsed: Record<string, unknown> = {};
+    try {
+      parsed = config.trim() ? JSON.parse(config) : {};
+      setConfigError("");
+    } catch {
+      setConfigError("Connection config must be valid JSON.");
       return;
     }
-    await createAssetMutation.mutateAsync(formData);
+    create.mutate({
+      name,
+      asset_type: assetType as CreateAssetInput["asset_type"],
+      provider: provider as CreateAssetInput["provider"],
+      region: region || undefined,
+      connection_config: parsed,
+    });
   };
-
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case "connected":
-        return <CheckCircle className="h-4 w-4 text-emerald-400" />;
-      case "scanning":
-        return (
-          <Loader2 className="h-4 w-4 text-blue-400 animate-spin" />
-        );
-      case "error":
-        return <AlertTriangle className="h-4 w-4 text-red-400" />;
-      default:
-        return <Shield className="h-4 w-4 text-slate-400" />;
-    }
-  };
-
-  const getRiskColor = (score: number) => {
-    if (score > 70) return "critical";
-    if (score > 40) return "high";
-    if (score > 20) return "medium";
-    return "low";
-  };
-
-  const filteredAssets = (assets || []).filter((asset: any) => {
-    if (search && !asset.name.toLowerCase().includes(search.toLowerCase())) {
-      return false;
-    }
-    return true;
-  });
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: 0.3 }}
-        className="flex items-center justify-between"
-      >
-        <div>
-          <h1 className="text-3xl font-bold text-slate-100">Assets</h1>
-          <p className="text-slate-400 mt-1">
-            Manage and monitor your data assets
-          </p>
-        </div>
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogTrigger asChild>
-            <Button className="flex items-center gap-2">
-              <Plus className="h-4 w-4" />
-              Connect Asset
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Connect New Asset</DialogTitle>
-              <DialogDescription>
-                Add a new data asset to monitor and scan
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4">
-              <div>
-                <label className="text-sm font-medium text-slate-300">
-                  Asset Name
-                </label>
-                <Input
-                  placeholder="e.g., Production S3 Bucket"
-                  value={formData.name}
-                  onChange={(e) =>
-                    setFormData({ ...formData, name: e.target.value })
-                  }
-                />
-              </div>
-
-              <div>
-                <label className="text-sm font-medium text-slate-300">
-                  Asset Type
-                </label>
-                <Select
-                  value={formData.asset_type}
-                  onValueChange={(value: any) =>
-                    setFormData({ ...formData, asset_type: value })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {ASSET_TYPES.map((type) => (
-                      <SelectItem key={type} value={type}>
-                        {type.replace(/_/g, " ")}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div>
-                <label className="text-sm font-medium text-slate-300">
-                  Provider
-                </label>
-                <Select
-                  value={formData.provider}
-                  onValueChange={(value: any) =>
-                    setFormData({ ...formData, provider: value })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {PROVIDERS.map((provider) => (
-                      <SelectItem key={provider} value={provider}>
-                        {provider.toUpperCase()}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div>
-                <label className="text-sm font-medium text-slate-300">
-                  Region
-                </label>
-                <Input
-                  placeholder="e.g., ap-south-1"
-                  value={formData.region}
-                  onChange={(e) =>
-                    setFormData({ ...formData, region: e.target.value })
-                  }
-                />
-              </div>
-
-              <Button
-                onClick={handleCreateAsset}
-                disabled={createAssetMutation.isPending}
+    <Dialog open={open} onOpenChange={(v) => { if (!v) reset(); onOpenChange(v); }}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Connect a data source</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="asset-name">Display name</Label>
+            <Input
+              id="asset-name"
+              placeholder="Production KYC bucket"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>Type</Label>
+              <Select
+                value={assetType}
+                onValueChange={(v) => {
+                  setAssetType(v);
+                  setConfig(CONFIG_HINTS[v] ?? "{}");
+                }}
               >
-                {createAssetMutation.isPending ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Creating...
-                  </>
-                ) : (
-                  "Create Asset"
-                )}
-              </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
-      </motion.div>
-
-      {/* Filters */}
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: 0.3, delay: 0.1 }}
-        className="flex gap-4"
-      >
-        <Input
-          placeholder="Search assets..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="max-w-xs"
-        />
-        <Select value={filterType} onValueChange={setFilterType}>
-          <SelectTrigger className="w-48">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Types</SelectItem>
-            {ASSET_TYPES.map((type) => (
-              <SelectItem key={type} value={type}>
-                {type.replace(/_/g, " ")}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={filterStatus} onValueChange={setFilterStatus}>
-          <SelectTrigger className="w-48">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Status</SelectItem>
-            <SelectItem value="connected">Connected</SelectItem>
-            <SelectItem value="scanning">Scanning</SelectItem>
-            <SelectItem value="error">Error</SelectItem>
-          </SelectContent>
-        </Select>
-      </motion.div>
-
-      {/* Assets Table */}
-      {isLoading ? (
-        <Card>
-          <CardContent className="p-12 flex items-center justify-center">
-            <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
-          </CardContent>
-        </Card>
-      ) : filteredAssets.length === 0 ? (
-        <Card>
-          <CardContent className="p-12 text-center">
-            <Alert>
-              <AlertDescription>
-                No assets found. Connect your first asset to get started.
-              </AlertDescription>
-            </Alert>
-          </CardContent>
-        </Card>
-      ) : (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.3, delay: 0.2 }}
-        >
-          <Card>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-slate-700">
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-slate-300">
-                      Name
-                    </th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-slate-300">
-                      Type
-                    </th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-slate-300">
-                      Provider
-                    </th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-slate-300">
-                      Status
-                    </th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-slate-300">
-                      Risk Score
-                    </th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-slate-300">
-                      PII Records
-                    </th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-slate-300">
-                      Last Scanned
-                    </th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-slate-300">
-                      Actions
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredAssets.map((asset: any) => (
-                    <motion.tr
-                      key={asset.id}
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      className="border-b border-slate-700 hover:bg-slate-800 transition"
-                    >
-                      <td className="px-6 py-3 text-sm text-slate-100">
-                        {asset.name}
-                      </td>
-                      <td className="px-6 py-3 text-sm text-slate-300">
-                        {asset.asset_type.replace(/_/g, " ")}
-                      </td>
-                      <td className="px-6 py-3 text-sm text-slate-300">
-                        {asset.provider.toUpperCase()}
-                      </td>
-                      <td className="px-6 py-3 text-sm">
-                        <div className="flex items-center gap-2">
-                          {getStatusIcon(asset.status)}
-                          <span className="capitalize text-slate-300">
-                            {asset.status}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-3 text-sm">
-                        <Badge variant={getRiskColor(asset.risk_score)}>
-                          {asset.risk_score}
-                        </Badge>
-                      </td>
-                      <td className="px-6 py-3 text-sm text-slate-300">
-                        {asset.pii_record_count.toLocaleString()}
-                      </td>
-                      <td className="px-6 py-3 text-sm text-slate-400">
-                        {asset.last_scanned_at
-                          ? new Date(asset.last_scanned_at).toLocaleDateString()
-                          : "Never"}
-                      </td>
-                      <td className="px-6 py-3 text-sm">
-                        <div className="flex gap-2">
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() =>
-                              scanAssetMutation.mutate(asset.id)
-                            }
-                            disabled={scanAssetMutation.isPending}
-                          >
-                            <RefreshCw className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => deleteAssetMutation.mutate(asset.id)}
-                            disabled={deleteAssetMutation.isPending}
-                          >
-                            <Trash2 className="h-4 w-4 text-red-400" />
-                          </Button>
-                        </div>
-                      </td>
-                    </motion.tr>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {ASSET_TYPES.map((t) => (
+                    <SelectItem key={t} value={t}>
+                      {label(ASSET_TYPE_LABELS, t)}
+                    </SelectItem>
                   ))}
-                </tbody>
-              </table>
+                </SelectContent>
+              </Select>
             </div>
-          </Card>
-        </motion.div>
-      )}
-    </div>
+            <div className="space-y-1.5">
+              <Label>Provider</Label>
+              <Select value={provider} onValueChange={setProvider}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {PROVIDERS.map((p) => (
+                    <SelectItem key={p} value={p}>
+                      {label(PROVIDER_LABELS, p)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="region">Region</Label>
+            <Input
+              id="region"
+              placeholder="ap-south-1"
+              value={region}
+              onChange={(e) => setRegion(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="config">Connection config (JSON)</Label>
+            <Textarea
+              id="config"
+              className="min-h-[120px] font-mono text-xs"
+              value={config}
+              onChange={(e) => setConfig(e.target.value)}
+            />
+            {configError && <p className="text-xs text-critical">{configError}</p>}
+            <p className="text-[11px] text-faint">
+              Credentials are encrypted at rest with your tenant key.
+            </p>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button onClick={submit} disabled={!name || create.isPending}>
+            {create.isPending ? "Connecting…" : "Connect asset"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
+export default function AssetsPage() {
+  return (
+    <Suspense fallback={<LoadingPanel label="Loading assets…" />}>
+      <AssetsContent />
+    </Suspense>
+  );
+}
+
+function AssetsContent() {
+  const qc = useQueryClient();
+  const sp = useSearchParams();
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState("");
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [providerFilter, setProviderFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [connectOpen, setConnectOpen] = useState(sp.get("action") === "new");
+  const [deleteTarget, setDeleteTarget] = useState<Asset | null>(null);
+
+  const filters: AssetListFilter = useMemo(
+    () => ({
+      page,
+      page_size: 20,
+      search: search || undefined,
+      asset_type: typeFilter === "all" ? undefined : typeFilter,
+      provider: providerFilter === "all" ? undefined : providerFilter,
+      status: statusFilter === "all" ? undefined : statusFilter,
+    }),
+    [page, search, typeFilter, providerFilter, statusFilter],
+  );
+
+  const assetsQ = useQuery({
+    queryKey: ["assets", filters],
+    queryFn: () => assetsAPI.list(filters),
+  });
+
+  const scan = useMutation({
+    mutationFn: (id: string) => assetsAPI.triggerScan(id, { scan_type: "full" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["assets"] });
+      toast.success("Scan queued", "A full scan has been dispatched.");
+    },
+    onError: (e) => toast.error("Scan failed", getApiErrorMessage(e)),
+  });
+
+  const test = useMutation({
+    mutationFn: (id: string) => assetsAPI.testConnection(id),
+    onSuccess: (res) =>
+      res.data?.success
+        ? toast.success("Connection healthy", res.data.message)
+        : toast.error("Connection failed", res.data?.message),
+    onError: (e) => toast.error("Connection failed", getApiErrorMessage(e)),
+  });
+
+  const del = useMutation({
+    mutationFn: (id: string) => assetsAPI.delete(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["assets"] });
+      toast.success("Asset removed");
+      setDeleteTarget(null);
+    },
+    onError: (e) => toast.error("Could not remove asset", getApiErrorMessage(e)),
+  });
+
+  const assets = assetsQ.data?.data ?? [];
+
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        eyebrow="Inventory"
+        title="Connected Assets"
+        description="Cloud and on-prem data sources under continuous discovery."
+        icon={<Database className="h-5 w-5" />}
+        actions={
+          <Button onClick={() => setConnectOpen(true)}>
+            <Plus className="h-4 w-4" /> Connect Asset
+          </Button>
+        }
+      />
+
+      <Panel
+        title="Asset Registry"
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint" />
+              <Input
+                placeholder="Search…"
+                className="h-9 w-44 pl-8 text-sm"
+                value={search}
+                onChange={(e) => {
+                  setPage(1);
+                  setSearch(e.target.value);
+                }}
+              />
+            </div>
+            <Select value={typeFilter} onValueChange={(v) => { setPage(1); setTypeFilter(v); }}>
+              <SelectTrigger className="h-9 w-36 text-sm"><SelectValue placeholder="Type" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All types</SelectItem>
+                {ASSET_TYPES.map((t) => (
+                  <SelectItem key={t} value={t}>{label(ASSET_TYPE_LABELS, t)}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={providerFilter} onValueChange={(v) => { setPage(1); setProviderFilter(v); }}>
+              <SelectTrigger className="h-9 w-36 text-sm"><SelectValue placeholder="Provider" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All providers</SelectItem>
+                {PROVIDERS.map((p) => (
+                  <SelectItem key={p} value={p}>{label(PROVIDER_LABELS, p)}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={statusFilter} onValueChange={(v) => { setPage(1); setStatusFilter(v); }}>
+              <SelectTrigger className="h-9 w-36 text-sm"><SelectValue placeholder="Status" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All status</SelectItem>
+                {ASSET_STATUSES.map((s) => (
+                  <SelectItem key={s} value={s}>{s}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        }
+      >
+        {assetsQ.isLoading ? (
+          <TableSkeleton rows={6} cols={6} />
+        ) : assetsQ.isError ? (
+          <ErrorState message={getApiErrorMessage(assetsQ.error)} onRetry={() => assetsQ.refetch()} />
+        ) : assets.length === 0 ? (
+          <EmptyState
+            icon={<Database className="h-6 w-6" />}
+            title="No assets found"
+            description="Connect a cloud bucket or database to start discovering personal data."
+            action={
+              <Button onClick={() => setConnectOpen(true)}>
+                <Plus className="h-4 w-4" /> Connect Asset
+              </Button>
+            }
+          />
+        ) : (
+          <>
+            <DataTable>
+              <THead>
+                <TH>Asset</TH>
+                <TH>Provider</TH>
+                <TH>Status</TH>
+                <TH className="text-right">PII Records</TH>
+                <TH>Risk</TH>
+                <TH>Last Scan</TH>
+                <TH className="text-right">Actions</TH>
+              </THead>
+              <TBody>
+                {assets.map((a) => {
+                  const Icon = TYPE_ICON[a.asset_type] ?? Database;
+                  return (
+                    <TR key={a.id}>
+                      <TD>
+                        <div className="flex items-center gap-3">
+                          <span className="flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-surface-2 text-muted">
+                            <Icon className="h-4 w-4" />
+                          </span>
+                          <div className="min-w-0">
+                            <Link
+                              href={`/dashboard/assets/${a.id}`}
+                              className="truncate font-medium text-foreground transition-colors hover:text-accent"
+                            >
+                              {a.name}
+                            </Link>
+                            <p className="font-mono text-[11px] text-faint">
+                              {label(ASSET_TYPE_LABELS, a.asset_type)}
+                            </p>
+                          </div>
+                        </div>
+                      </TD>
+                      <TD>
+                        <span className="font-mono text-xs uppercase text-muted">
+                          {label(PROVIDER_LABELS, a.provider)}
+                          {a.region ? ` · ${a.region}` : ""}
+                        </span>
+                      </TD>
+                      <TD><StatusPill status={a.status} /></TD>
+                      <TD className="text-right font-mono tabular-nums">
+                        {a.pii_record_count.toLocaleString("en-IN")}
+                      </TD>
+                      <TD><RiskScore score={a.risk_score} /></TD>
+                      <TD className="font-mono text-xs text-muted">
+                        {a.last_scanned_at ? formatRelativeTime(a.last_scanned_at) : "never"}
+                      </TD>
+                      <TD>
+                        <div className="flex items-center justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title="Run scan"
+                            disabled={scan.isPending}
+                            onClick={() => scan.mutate(a.id)}
+                          >
+                            <ScanLine className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title="Test connection"
+                            disabled={test.isPending}
+                            onClick={() => test.mutate(a.id)}
+                          >
+                            <Plug className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title="Remove"
+                            className="text-critical hover:text-critical"
+                            onClick={() => setDeleteTarget(a)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </TD>
+                    </TR>
+                  );
+                })}
+              </TBody>
+            </DataTable>
+            <div className="mt-4">
+              <Pager pagination={assetsQ.data?.meta?.pagination} onPageChange={setPage} />
+            </div>
+          </>
+        )}
+      </Panel>
+
+      <ConnectAssetModal open={connectOpen} onOpenChange={setConnectOpen} />
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onOpenChange={(v) => !v && setDeleteTarget(null)}
+        title="Remove asset?"
+        description={
+          <>
+            <span className="font-medium text-foreground">{deleteTarget?.name}</span> and
+            its scan history will be disconnected. This cannot be undone.
+          </>
+        }
+        confirmLabel="Remove asset"
+        loading={del.isPending}
+        onConfirm={() => deleteTarget && del.mutate(deleteTarget.id)}
+      />
+    </div>
+  );
+}

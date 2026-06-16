@@ -102,6 +102,31 @@ func (s *AlertService) Create(ctx context.Context, alert *models.Alert) error {
 	return err
 }
 
+// CreateInternal inserts an alert on behalf of a trusted internal service,
+// running inside a transaction with the tenant RLS context applied so isolation
+// is enforced even when the caller is the shared service identity.
+func (s *AlertService) CreateInternal(ctx context.Context, tenantID string, alert *models.Alert) error {
+	return s.pg.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		if err := db.SetTenantContext(ctx, tx, tenantID); err != nil {
+			return err
+		}
+		_, err := tx.NewInsert().Model(alert).Exec(ctx)
+		return err
+	})
+}
+
+// MarkNotified flags an alert as having had its notifications dispatched.
+func (s *AlertService) MarkNotified(ctx context.Context, tenantID, alertID string) error {
+	if err := db.SetTenantContext(ctx, s.pg, tenantID); err != nil {
+		return err
+	}
+	_, err := s.pg.NewUpdate().Model((*models.Alert)(nil)).
+		Set("notification_sent = true").
+		Where("id = ? AND tenant_id = ?", alertID, tenantID).
+		Exec(ctx)
+	return err
+}
+
 // GetByID returns a single alert.
 func (s *AlertService) GetByID(ctx context.Context, id, tenantID string) (*models.Alert, error) {
 	if err := db.SetTenantContext(ctx, s.pg, tenantID); err != nil {

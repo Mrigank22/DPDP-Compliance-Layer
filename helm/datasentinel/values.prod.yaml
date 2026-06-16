@@ -1,0 +1,212 @@
+# ==============================================================================
+# DataSentinel — production overrides
+# Usage:
+#   helm upgrade --install datasentinel ./helm/datasentinel \
+#     -n datasentinel --create-namespace \
+#     -f helm/datasentinel/values.yaml \
+#     -f helm/datasentinel/values.prod.yaml \
+#     --set-string image.tag=<git-sha>
+#
+# This overlay assumes:
+#   * Images pushed to your registry (set image.registry / image.tag).
+#   * PostgreSQL (RDS), Redis (ElastiCache) and ClickHouse provisioned and
+#     reachable from the cluster.
+#   * Secrets sourced from a secret manager via External Secrets Operator.
+# ==============================================================================
+
+image:
+  registry: 123456789012.dkr.ecr.ap-south-1.amazonaws.com/datasentinel
+  # -- Pin to an immutable tag (git SHA) at deploy time via --set-string image.tag=...
+  tag: ""
+  pullPolicy: IfNotPresent
+
+serviceAccount:
+  create: true
+  annotations:
+    # IRSA role granting S3 (reports + scanning) and Secrets Manager access.
+    eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/datasentinel-prod
+
+# ---- External managed data stores -------------------------------------------
+database:
+  host: datasentinel-prod.abcdef.ap-south-1.rds.amazonaws.com
+  port: 5432
+  name: datasentinel
+  user: datasentinel
+  # password sourced via External Secrets (DATABASE_URL); placeholder unused.
+  sslMode: require
+  maxOpenConns: 50
+  maxIdleConns: 10
+
+redis:
+  host: datasentinel-prod.abc.0001.aps1.cache.amazonaws.com
+  port: 6379
+
+clickhouse:
+  host: clickhouse.datasentinel-prod.svc.cluster.local
+  nativePort: 9000
+  httpPort: 8123
+  database: datasentinel
+  user: default
+
+# ---- Secrets via External Secrets Operator ----------------------------------
+secrets:
+  create: false
+jwt:
+  create: false
+  # ESO will create the JWT secret; point control-plane/gateway at this name.
+  existingSecret: datasentinel-jwt
+externalSecrets:
+  enabled: true
+  secretStoreRef:
+    name: aws-secretsmanager
+    kind: ClusterSecretStore
+  refreshInterval: 1h
+  controlPlaneRemoteKey: datasentinel/prod/control-plane
+  gatewayRemoteKey: datasentinel/prod/gateway
+  workersRemoteKey: datasentinel/prod/workers
+  jwtRemoteKey: datasentinel/prod/jwt
+
+# ---- Control plane ----------------------------------------------------------
+controlPlane:
+  replicaCount: 3
+  env: production
+  baseUrl: https://app.datasentinel.io
+  allowedOrigins: https://app.datasentinel.io
+  logLevel: info
+  phoneHome:
+    disabled: false
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "2"
+      memory: 1Gi
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 2
+
+# ---- Gateway ----------------------------------------------------------------
+gateway:
+  replicaCount: 3
+  env: production
+  logLevel: info
+  jwtVerification:
+    enabled: true
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: "2"
+      memory: 1Gi
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 20
+    targetCPUUtilizationPercentage: 65
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 2
+
+# ---- Workers ----------------------------------------------------------------
+workers:
+  environment: production
+  logLevel: info
+  aws:
+    region: ap-south-1
+    s3ReportsBucket: datasentinel-prod-reports
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1536Mi
+    limits:
+      cpu: "2"
+      memory: 3Gi
+  queues:
+    - name: discovery
+      replicaCount: 2
+      concurrency: 4
+    - name: classification
+      replicaCount: 3
+      concurrency: 4
+    - name: rights
+      replicaCount: 1
+      concurrency: 2
+    - name: reports
+      replicaCount: 1
+      concurrency: 2
+    - name: notifications
+      replicaCount: 1
+      concurrency: 2
+  beat:
+    enabled: true
+  flower:
+    enabled: true
+
+# ---- Frontend ---------------------------------------------------------------
+frontend:
+  replicaCount: 3
+  apiUrl: https://app.datasentinel.io/api/v1
+  resources:
+    requests:
+      cpu: 150m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 8
+    targetCPUUtilizationPercentage: 75
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 2
+
+# ---- Ingress (cert-manager + nginx) -----------------------------------------
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+  dashboard:
+    host: app.datasentinel.io
+  tls:
+    enabled: true
+    secretName: datasentinel-dashboard-tls
+  gateway:
+    enabled: true
+    host: gateway.datasentinel.io
+    tls:
+      enabled: true
+      secretName: datasentinel-gateway-tls
+  flower:
+    enabled: true
+    host: flower.datasentinel.io
+    tls:
+      enabled: true
+      secretName: datasentinel-flower-tls
+    annotations:
+      # Protect Flower behind basic auth (create the secret separately).
+      nginx.ingress.kubernetes.io/auth-type: basic
+      nginx.ingress.kubernetes.io/auth-secret: datasentinel-flower-basic-auth
+
+# ---- Observability + hardening ----------------------------------------------
+metrics:
+  serviceMonitor:
+    enabled: true
+    interval: 30s
+
+networkPolicy:
+  enabled: true
+  allowDNS: true
+
+defaultPodAntiAffinity: soft

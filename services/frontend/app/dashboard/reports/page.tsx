@@ -1,19 +1,36 @@
 "use client";
 
-import { useState } from "react";
-import { motion } from "framer-motion";
+import { Suspense, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  FileBarChart,
+  Plus,
+  Download,
+  Trash2,
+  Loader2,
+  FileText,
+} from "lucide-react";
 import { reportsAPI } from "@/lib/api/reports";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import type { Report, GenerateReportInput } from "@/types/api";
+import { REPORT_TYPES } from "@/types/api";
+import { getApiErrorMessage } from "@/lib/api-client";
+import { toast } from "@/lib/store/toast.store";
+import { PageHeader, Panel } from "@/components/common/panel";
+import { DataTable, THead, TH, TBody, TR, TD } from "@/components/common/table";
+import { TableSkeleton, EmptyState, ErrorState, LoadingPanel } from "@/components/common/states";
+import { StatusPill } from "@/components/common/indicators";
+import { Pager } from "@/components/common/pager";
+import { ConfirmDialog } from "@/components/common/confirm-dialog";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import {
   Select,
@@ -22,288 +39,235 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
-import { Input } from "@/components/ui/input";
-import {
-  Plus,
-  Download,
-  FileText,
-  Loader2,
-  Trash2,
-  Calendar,
-} from "lucide-react";
-import { REPORT_TYPES } from "@/types/api";
+import { REPORT_TYPE_LABELS, label } from "@/lib/utils/labels";
+import { formatDateTime } from "@/lib/utils/helpers";
 
-export default function ReportsPage() {
-  const queryClient = useQueryClient();
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [formData, setFormData] = useState({
-    report_type: "dpdp_compliance" as typeof REPORT_TYPES[number],
-    title: "",
-    dateRange: "30days",
-  });
+function bytes(n?: number) {
+  if (!n) return "—";
+  const u = ["B", "KB", "MB", "GB"];
+  let i = 0;
+  let v = n;
+  while (v >= 1024 && i < u.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  return `${v.toFixed(1)} ${u[i]}`;
+}
 
-  // Fetch reports
-  const { data: reports, isLoading } = useQuery({
-    queryKey: ["reports"],
-    queryFn: async () => {
-      const response = await reportsAPI.list();
-      return response.data.data || [];
-    },
-  });
+function GenerateModal({
+  open,
+  onOpenChange,
+  initialType,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  initialType?: string;
+}) {
+  const qc = useQueryClient();
+  const [reportType, setReportType] = useState(initialType || "dpdp_compliance");
+  const [title, setTitle] = useState("");
 
-  // Generate report mutation
-  const generateReportMutation = useMutation({
-    mutationFn: async (data: any) => {
-      const response = await reportsAPI.generate(data);
-      return response.data;
-    },
+  const generate = useMutation({
+    mutationFn: (data: GenerateReportInput) => reportsAPI.generate(data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["reports"] });
-      setDialogOpen(false);
-      setFormData({
-        report_type: "dpdp_compliance",
-        title: "",
-        dateRange: "30days",
-      });
+      qc.invalidateQueries({ queryKey: ["reports"] });
+      toast.success("Report queued", "It will be ready shortly.");
+      setTitle("");
+      onOpenChange(false);
     },
+    onError: (e) => toast.error("Could not generate report", getApiErrorMessage(e)),
   });
-
-  // Delete report mutation
-  const deleteReportMutation = useMutation({
-    mutationFn: async (reportId: string) => {
-      await reportsAPI.delete(reportId);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["reports"] });
-    },
-  });
-
-  const handleGenerateReport = async () => {
-    if (!formData.title) {
-      alert("Report title is required");
-      return;
-    }
-    await generateReportMutation.mutateAsync({
-      report_type: formData.report_type,
-      title: formData.title,
-    });
-  };
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "ready":
-        return "success";
-      case "generating":
-        return "info";
-      case "failed":
-        return "critical";
-      default:
-        return "info";
-    }
-  };
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: 0.3 }}
-        className="flex items-center justify-between"
-      >
-        <div>
-          <h1 className="text-3xl font-bold text-slate-100">Reports</h1>
-          <p className="text-slate-400 mt-1">
-            Generate compliance and analysis reports
-          </p>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Generate report</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <Label>Report type</Label>
+            <Select value={reportType} onValueChange={setReportType}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {REPORT_TYPES.map((t) => (
+                  <SelectItem key={t} value={t}>{label(REPORT_TYPE_LABELS, t)}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="title">Title</Label>
+            <Input
+              id="title"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="Q2 FY25 DPDP Compliance Summary"
+            />
+          </div>
         </div>
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogTrigger asChild>
-            <Button className="flex items-center gap-2">
-              <Plus className="h-4 w-4" />
-              Generate Report
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Generate New Report</DialogTitle>
-              <DialogDescription>
-                Create a compliance or analysis report
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4">
-              <div>
-                <label className="text-sm font-medium text-slate-300">
-                  Report Type
-                </label>
-                <Select
-                  value={formData.report_type}
-                  onValueChange={(value: any) =>
-                    setFormData({ ...formData, report_type: value })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {REPORT_TYPES.map((type) => (
-                      <SelectItem key={type} value={type}>
-                        {type.replace(/_/g, " ")}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div>
-                <label className="text-sm font-medium text-slate-300">
-                  Report Title
-                </label>
-                <Input
-                  placeholder="e.g., March 2024 Compliance Report"
-                  value={formData.title}
-                  onChange={(e) =>
-                    setFormData({ ...formData, title: e.target.value })
-                  }
-                />
-              </div>
-
-              <div>
-                <label className="text-sm font-medium text-slate-300">
-                  Date Range
-                </label>
-                <Select
-                  value={formData.dateRange}
-                  onValueChange={(value) =>
-                    setFormData({ ...formData, dateRange: value })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="7days">Last 7 days</SelectItem>
-                    <SelectItem value="30days">Last 30 days</SelectItem>
-                    <SelectItem value="90days">Last 90 days</SelectItem>
-                    <SelectItem value="1year">Last year</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <Button
-                onClick={handleGenerateReport}
-                disabled={generateReportMutation.isPending}
-              >
-                {generateReportMutation.isPending ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Generating...
-                  </>
-                ) : (
-                  "Generate Report"
-                )}
-              </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
-      </motion.div>
-
-      {/* Reports Grid */}
-      {isLoading ? (
-        <Card>
-          <CardContent className="p-12 flex items-center justify-center">
-            <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
-          </CardContent>
-        </Card>
-      ) : (reports || []).length === 0 ? (
-        <Card>
-          <CardContent className="p-12 text-center text-slate-400">
-            No reports generated yet. Create your first report to get started.
-          </CardContent>
-        </Card>
-      ) : (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.3, delay: 0.2 }}
-          className="grid grid-cols-1 md:grid-cols-2 gap-6"
-        >
-          {(reports || []).map((report: any) => (
-            <motion.div
-              key={report.id}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-            >
-              <Card>
-                <CardHeader>
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-start gap-3">
-                      <FileText className="h-5 w-5 text-blue-400 mt-1" />
-                      <div>
-                        <CardTitle className="text-lg">
-                          {report.title}
-                        </CardTitle>
-                        <p className="text-xs text-slate-400 mt-1">
-                          {report.report_type.replace(/_/g, " ")}
-                        </p>
-                      </div>
-                    </div>
-                    <Badge variant={getStatusColor(report.status)}>
-                      {report.status}
-                    </Badge>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-slate-400">Generated</span>
-                    <span className="text-slate-200">
-                      {new Date(report.created_at).toLocaleDateString()}
-                    </span>
-                  </div>
-
-                  {report.file_size_bytes && (
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-slate-400">File Size</span>
-                      <span className="text-slate-200">
-                        {(report.file_size_bytes / 1024 / 1024).toFixed(2)} MB
-                      </span>
-                    </div>
-                  )}
-
-                  <div className="flex gap-2 pt-4">
-                    {report.status === "ready" && (
-                      <Button
-                        size="sm"
-                        className="flex-1"
-                        onClick={() => {
-                          // Download report
-                          window.open(report.file_url, "_blank");
-                        }}
-                      >
-                        <Download className="h-4 w-4 mr-2" />
-                        Download
-                      </Button>
-                    )}
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="flex-1"
-                      onClick={() =>
-                        deleteReportMutation.mutate(report.id)
-                      }
-                      disabled={deleteReportMutation.isPending}
-                    >
-                      <Trash2 className="h-4 w-4 text-red-400" />
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            </motion.div>
-          ))}
-        </motion.div>
-      )}
-    </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button
+            disabled={!title || generate.isPending}
+            onClick={() =>
+              generate.mutate({
+                report_type: reportType as GenerateReportInput["report_type"],
+                title,
+              })
+            }
+          >
+            {generate.isPending ? "Queuing…" : "Generate"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
+export default function ReportsPage() {
+  return (
+    <Suspense fallback={<LoadingPanel label="Loading reports…" />}>
+      <ReportsContent />
+    </Suspense>
+  );
+}
+
+function ReportsContent() {
+  const qc = useQueryClient();
+  const sp = useSearchParams();
+  const [page, setPage] = useState(1);
+  const [genOpen, setGenOpen] = useState(sp.get("action") === "new");
+  const [deleteTarget, setDeleteTarget] = useState<Report | null>(null);
+
+  const reportsQ = useQuery({
+    queryKey: ["reports", page],
+    queryFn: () => reportsAPI.list({ page, page_size: 20 }),
+    refetchInterval: (q) => {
+      const data = q.state.data?.data as Report[] | undefined;
+      return data?.some((r) => r.status === "generating") ? 4000 : false;
+    },
+  });
+
+  const del = useMutation({
+    mutationFn: (id: string) => reportsAPI.delete(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["reports"] });
+      toast.success("Report deleted");
+      setDeleteTarget(null);
+    },
+    onError: (e) => toast.error("Could not delete report", getApiErrorMessage(e)),
+  });
+
+  const reports = reportsQ.data?.data ?? [];
+
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        eyebrow="Evidence"
+        title="Reports"
+        description="Audit-ready DPDP, DPIA and incident evidence packs for regulators and boards."
+        icon={<FileBarChart className="h-5 w-5" />}
+        actions={
+          <Button onClick={() => setGenOpen(true)}>
+            <Plus className="h-4 w-4" /> Generate Report
+          </Button>
+        }
+      />
+
+      <Panel title="Generated Reports">
+        {reportsQ.isLoading ? (
+          <TableSkeleton rows={6} cols={4} />
+        ) : reportsQ.isError ? (
+          <ErrorState message={getApiErrorMessage(reportsQ.error)} onRetry={() => reportsQ.refetch()} />
+        ) : reports.length === 0 ? (
+          <EmptyState
+            icon={<FileText className="h-6 w-6" />}
+            title="No reports yet"
+            description="Generate your first DPDP compliance or DPIA report."
+            action={
+              <Button onClick={() => setGenOpen(true)}>
+                <Plus className="h-4 w-4" /> Generate Report
+              </Button>
+            }
+          />
+        ) : (
+          <DataTable>
+            <THead>
+              <TH>Report</TH>
+              <TH>Type</TH>
+              <TH>Status</TH>
+              <TH className="text-right">Size</TH>
+              <TH>Created</TH>
+              <TH className="text-right">Actions</TH>
+            </THead>
+            <TBody>
+              {reports.map((r) => (
+                <TR key={r.id}>
+                  <TD>
+                    <div className="flex items-center gap-3">
+                      <span className="flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-surface-2 text-muted">
+                        <FileText className="h-4 w-4" />
+                      </span>
+                      <span className="font-medium text-foreground">{r.title}</span>
+                    </div>
+                  </TD>
+                  <TD className="font-mono text-xs uppercase text-muted">
+                    {label(REPORT_TYPE_LABELS, r.report_type)}
+                  </TD>
+                  <TD>
+                    {r.status === "generating" ? (
+                      <span className="inline-flex items-center gap-1.5 font-mono text-xs text-accent-2">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" /> generating
+                      </span>
+                    ) : (
+                      <StatusPill status={r.status} />
+                    )}
+                  </TD>
+                  <TD className="text-right font-mono text-xs text-muted">{bytes(r.file_size_bytes)}</TD>
+                  <TD className="font-mono text-xs text-muted">{formatDateTime(r.created_at)}</TD>
+                  <TD>
+                    <div className="flex items-center justify-end gap-1">
+                      {r.status === "ready" && r.file_url && (
+                        <a href={r.file_url} target="_blank" rel="noopener noreferrer">
+                          <Button variant="ghost" size="icon" title="Download">
+                            <Download className="h-4 w-4" />
+                          </Button>
+                        </a>
+                      )}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        title="Delete"
+                        className="text-critical hover:text-critical"
+                        onClick={() => setDeleteTarget(r)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </TD>
+                </TR>
+              ))}
+            </TBody>
+          </DataTable>
+        )}
+        {reports.length > 0 && (
+          <div className="mt-4">
+            <Pager pagination={reportsQ.data?.meta?.pagination} onPageChange={setPage} />
+          </div>
+        )}
+      </Panel>
+
+      <GenerateModal open={genOpen} onOpenChange={setGenOpen} initialType={sp.get("type") ?? undefined} />
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onOpenChange={(v) => !v && setDeleteTarget(null)}
+        title="Delete report?"
+        description={<><span className="font-medium text-foreground">{deleteTarget?.title}</span> will be permanently removed.</>}
+        confirmLabel="Delete report"
+        loading={del.isPending}
+        onConfirm={() => deleteTarget && del.mutate(deleteTarget.id)}
+      />
+    </div>
+  );
+}

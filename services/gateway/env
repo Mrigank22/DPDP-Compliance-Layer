@@ -1,0 +1,65 @@
+# Gateway Environment Configuration
+# Copy this to .env and update with your values
+
+# ── Server Configuration ──────────────────────────────────────────────────────
+ENV=development
+HTTP_PORT=8080
+HTTPS_PORT=8443
+METRICS_PORT=9090
+
+# ── TLS Configuration (Optional for development) ───────────────────────────────
+# Leave blank for HTTP-only (localhost development)
+TLS_CERT_FILE=
+TLS_KEY_FILE=
+
+# ── Control Plane Integration ─────────────────────────────────────────────────
+# URL where control-plane API is running
+CONTROL_PLANE_URL=http://localhost:3001
+# Internal service-to-service API key (must match in workers)
+CONTROL_PLANE_API_KEY=dev-api-key-12345
+
+# ── Redis (policy cache & vault) ──────────────────────────────────────────────
+# Using DB 2 to avoid conflicts with control-plane (DB 0) and workers (DB 0/1)
+REDIS_URL=redis://localhost:6379/2
+
+# ── PostgreSQL (tokenization vault persistence) ───────────────────────────────
+# Same database as control-plane; gateway uses separate tables
+DATABASE_URL=postgresql://datasentinel:datasentinel@localhost:5432/datasentinel
+
+# ── ClickHouse (event logging) ────────────────────────────────────────────────
+CLICKHOUSE_URL=http://localhost:8123
+CLICKHOUSE_USER=default
+CLICKHOUSE_PASSWORD=
+CLICKHOUSE_DATABASE=datasentinel
+
+# ── Encryption ────────────────────────────────────────────────────────────────
+# MUST be identical to control-plane and workers
+# 32-byte hex key (64 characters)
+MASTER_ENCRYPTION_KEY=cbc4565ddbfe08d7c55bc3bf8c15e2e1f5a06fc9d1e9dc1a5cda50fac4fa64da
+
+# ── JWT Verification (Optional) ───────────────────────────────────────────────
+# RS256 public key (same key the control plane signs with). When set, the
+# gateway verifies Bearer JWT signatures. When empty, JWT auth is disabled and
+# callers must use X-API-Key + X-Tenant-ID.
+JWT_PUBLIC_KEY_PATH=
+
+# ── Proxy Behavior ────────────────────────────────────────────────────────────
+# Timeout for connecting to upstream data source
+UPSTREAM_DIAL_TIMEOUT=5s
+# Timeout for reading from upstream
+UPSTREAM_READ_TIMEOUT=30s
+# Timeout for writing to upstream
+UPSTREAM_WRITE_TIMEOUT=30s
+# Maximum request body size (10 MB)
+MAX_BODY_BYTES=10485760
+
+# ── PII Detection Settings ────────────────────────────────────────────────────
+# Minimum confidence threshold for reporting PII (0.0 to 1.0)
+PII_SCORE_THRESHOLD=0.7
+# Number of parallel workers for PII detection
+MAX_DETECT_WORKERS=8
+
+# ── Observability ─────────────────────────────────────────────────────────────
+LOG_LEVEL=debug
+SERVICE_NAME=datasentinel-gateway
+

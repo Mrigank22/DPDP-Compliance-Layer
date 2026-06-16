@@ -1,0 +1,45 @@
+{{- if .Values.controlPlane.enabled }}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "datasentinel.fullname" . }}-test-connection
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "datasentinel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: test
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  containers:
+    - name: healthcheck
+      image: curlimages/curl:8.10.1
+      command:
+        - sh
+        - -c
+        - |
+          set -e
+          echo "Probing control-plane /healthz ..."
+          curl -fsS http://{{ include "datasentinel.controlPlane.fullname" . }}:{{ .Values.controlPlane.service.port }}/healthz
+          echo
+          echo "Probing control-plane /readyz ..."
+          curl -fsS http://{{ include "datasentinel.controlPlane.fullname" . }}:{{ .Values.controlPlane.service.port }}/readyz
+          echo
+          {{- if .Values.gateway.enabled }}
+          echo "Probing gateway /healthz ..."
+          curl -fsS http://{{ include "datasentinel.gateway.fullname" . }}:{{ .Values.gateway.service.httpPort }}/healthz
+          echo
+          {{- end }}
+          {{- if .Values.frontend.enabled }}
+          echo "Probing frontend ..."
+          curl -fsS -o /dev/null http://{{ include "datasentinel.frontend.fullname" . }}:{{ .Values.frontend.service.port }}/
+          {{- end }}
+          echo "All probes passed."
+      securityContext:
+        allowPrivilegeEscalation: false
+        runAsNonRoot: true
+        runAsUser: 65534
+        capabilities:
+          drop: ["ALL"]
+{{- end }}

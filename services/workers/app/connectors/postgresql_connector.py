@@ -7,7 +7,7 @@ from typing import Any, Generator
 import psycopg2
 import psycopg2.extras
 
-from app.connectors.base import BaseConnector, ConnectionTestResult, register_connector
+from app.connectors.base import BaseConnector, ConnectionTestResult, PostureFinding, register_connector
 
 _SKIP_COLUMNS = frozenset({
     "id", "created_at", "updated_at", "deleted_at",
@@ -134,6 +134,76 @@ class PostgreSQLConnector(BaseConnector):
                 fetched += len(rows)
                 if max_records and fetched >= max_records:
                     break
+
+    def search_records(self, source_name: str, term: str, max_matches: int = 1000) -> int | None:
+        """
+        Push the data-principal search down to PostgreSQL using a single
+        ``WHERE col::text ILIKE %s OR ...`` query, capped via a LIMIT subquery so
+        the database never scans more than ``max_matches`` matching rows. Far
+        cheaper than streaming the entire table into the worker.
+        """
+        conn = self._get_conn()
+        schema = self.config.get("schema", "public")
+        source = next((s for s in self.list_sources() if s["name"] == source_name), None)
+        if source is None:
+            return 0
+        cols = [c["name"] for c in source.get("columns", [])]
+        if not cols:
+            return 0
+
+        # Escape LIKE wildcards in the user-supplied term; values are still bound
+        # as parameters so this is not an injection vector — the escaping only
+        # prevents '%'/'_' in the term from acting as wildcards.
+        safe_term = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{safe_term}%"
+
+        clauses = " OR ".join(f'"{c}"::text ILIKE %s ESCAPE \'\\\'' for c in cols)
+        sql = (
+            f'SELECT COUNT(*) FROM '
+            f'(SELECT 1 FROM "{schema}"."{source_name}" WHERE {clauses} LIMIT %s) AS sub'
+        )
+        params = [pattern] * len(cols) + [max_matches]
+
+        with conn.cursor() as cur:
+            cur.execute(sql, params)
+            return int(cur.fetchone()[0])
+
+    def posture_check(self) -> list[PostureFinding]:
+        """Inspect transport security posture of the database connection."""
+        findings: list[PostureFinding] = []
+        resource = self.config.get("database", "postgres")
+
+        ssl_mode = (self.config.get("ssl_mode") or "prefer").lower()
+        if ssl_mode in ("disable", "allow", "prefer"):
+            findings.append(PostureFinding(
+                check_id="PG_SSL_NOT_ENFORCED",
+                title="Database connection does not require TLS",
+                severity="high",
+                description=(
+                    f"Asset is configured with ssl_mode='{ssl_mode}', which permits "
+                    "unencrypted connections. PII in transit may be exposed."
+                ),
+                resource=resource,
+                remediation="Set ssl_mode to 'require' (or 'verify-full') for this asset.",
+            ))
+
+        try:
+            with self._get_conn().cursor() as cur:
+                cur.execute("SHOW ssl")
+                row = cur.fetchone()
+                if row and str(row[0]).lower() == "off":
+                    findings.append(PostureFinding(
+                        check_id="PG_SSL_DISABLED",
+                        title="PostgreSQL server has TLS disabled",
+                        severity="high",
+                        description="The server reports ssl=off; all connections are unencrypted.",
+                        resource=resource,
+                        remediation="Enable SSL on the PostgreSQL server / RDS parameter group.",
+                    ))
+        except Exception as exc:
+            self.log.debug("posture SHOW ssl failed (non-fatal): %s", exc)
+
+        return findings
 
     def close(self) -> None:
         if self._conn and not self._conn.closed:

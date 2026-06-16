@@ -1,68 +1,179 @@
-import axios, { AxiosInstance } from 'axios';
-import Cookie from 'js-cookie';
+import axios, {
+  AxiosError,
+  AxiosInstance,
+  AxiosRequestConfig,
+  InternalAxiosRequestConfig,
+} from "axios";
+import Cookie from "js-cookie";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1';
+/**
+ * Standard response envelope used by every control-plane endpoint:
+ *   { data, meta?, error?, request_id }
+ */
+export interface Pagination {
+  page: number;
+  page_size: number;
+  total_items: number;
+  total_pages: number;
+  has_next: boolean;
+  has_prev: boolean;
+}
+
+export interface MetaBlock {
+  pagination?: Pagination;
+  extra?: Record<string, unknown>;
+}
+
+export interface ApiError {
+  code: string;
+  message: string;
+  details?: Record<string, unknown>;
+}
+
+export interface ApiEnvelope<T = unknown> {
+  data: T;
+  meta?: MetaBlock;
+  error?: ApiError | null;
+  request_id: string;
+}
+
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001/api/v1";
+
+const ACCESS_COOKIE = "accessToken";
+const REFRESH_COOKIE = "refreshToken";
 
 class APIClient {
   private instance: AxiosInstance;
+  private refreshing: Promise<string | null> | null = null;
 
   constructor() {
     this.instance = axios.create({
       baseURL: API_BASE_URL,
-      timeout: 30000,
-      headers: {
-        'Content-Type': 'application/json',
+      timeout: Number(process.env.NEXT_PUBLIC_API_TIMEOUT) || 30000,
+      headers: { "Content-Type": "application/json" },
+    });
+
+    this.instance.interceptors.request.use(
+      (config: InternalAxiosRequestConfig) => {
+        const token = Cookie.get(ACCESS_COOKIE);
+        if (token) {
+          config.headers.Authorization = `Bearer ${token}`;
+        }
+        return config;
       },
-    });
+    );
 
-    // Add request interceptor to include auth token
-    this.instance.interceptors.request.use((config) => {
-      const token = Cookie.get('accessToken');
-      if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
-      }
-      return config;
-    });
-
-    // Add response interceptor to handle auth errors
     this.instance.interceptors.response.use(
       (response) => response,
-      (error) => {
-        if (error.response?.status === 401) {
-          // Clear auth and redirect to login
-          Cookie.remove('accessToken');
-          Cookie.remove('refreshToken');
-          window.location.href = '/login';
+      async (error: AxiosError) => {
+        const original = error.config as
+          | (InternalAxiosRequestConfig & { _retry?: boolean })
+          | undefined;
+
+        const status = error.response?.status;
+        const isAuthRoute = original?.url?.includes("/auth/");
+
+        // Attempt a single transparent refresh on 401.
+        if (status === 401 && original && !original._retry && !isAuthRoute) {
+          original._retry = true;
+          const newToken = await this.tryRefresh();
+          if (newToken) {
+            original.headers.Authorization = `Bearer ${newToken}`;
+            return this.instance(original);
+          }
+          this.forceLogout();
         }
+
         return Promise.reject(error);
-      }
+      },
     );
   }
 
-  request<T = any>(config: any) {
-    return this.instance.request<T>(config);
+  /** Deduplicated refresh-token exchange. Returns the new access token or null. */
+  private async tryRefresh(): Promise<string | null> {
+    const refreshToken = Cookie.get(REFRESH_COOKIE);
+    if (!refreshToken) return null;
+
+    if (!this.refreshing) {
+      this.refreshing = axios
+        .post<ApiEnvelope<{ access_token: string; refresh_token: string; expires_in: number }>>(
+          `${API_BASE_URL}/auth/refresh`,
+          { refresh_token: refreshToken },
+          { headers: { "Content-Type": "application/json" } },
+        )
+        .then((res) => {
+          const payload = res.data?.data;
+          if (!payload?.access_token) return null;
+          Cookie.set(ACCESS_COOKIE, payload.access_token, { expires: 1, sameSite: "lax" });
+          Cookie.set(REFRESH_COOKIE, payload.refresh_token, { expires: 7, sameSite: "lax" });
+          return payload.access_token;
+        })
+        .catch(() => null)
+        .finally(() => {
+          this.refreshing = null;
+        });
+    }
+
+    return this.refreshing;
   }
 
-  get<T = any>(url: string, config?: any) {
-    return this.instance.get<T>(url, config);
+  private forceLogout() {
+    Cookie.remove(ACCESS_COOKIE);
+    Cookie.remove(REFRESH_COOKIE);
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("user");
+      if (!window.location.pathname.startsWith("/login")) {
+        window.location.href = "/login";
+      }
+    }
   }
 
-  post<T = any>(url: string, data?: any, config?: any) {
-    return this.instance.post<T>(url, data, config);
+  async get<T = unknown>(url: string, config?: AxiosRequestConfig): Promise<ApiEnvelope<T>> {
+    const res = await this.instance.get<ApiEnvelope<T>>(url, config);
+    return res.data;
   }
 
-  patch<T = any>(url: string, data?: any, config?: any) {
-    return this.instance.patch<T>(url, data, config);
+  async post<T = unknown>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<ApiEnvelope<T>> {
+    const res = await this.instance.post<ApiEnvelope<T>>(url, data, config);
+    return res.data;
   }
 
-  put<T = any>(url: string, data?: any, config?: any) {
-    return this.instance.put<T>(url, data, config);
+  async put<T = unknown>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<ApiEnvelope<T>> {
+    const res = await this.instance.put<ApiEnvelope<T>>(url, data, config);
+    return res.data;
   }
 
-  delete<T = any>(url: string, config?: any) {
-    return this.instance.delete<T>(url, config);
+  async patch<T = unknown>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<ApiEnvelope<T>> {
+    const res = await this.instance.patch<ApiEnvelope<T>>(url, data, config);
+    return res.data;
+  }
+
+  async delete<T = unknown>(url: string, config?: AxiosRequestConfig): Promise<ApiEnvelope<T>> {
+    const res = await this.instance.delete<ApiEnvelope<T>>(url, config);
+    return res.data;
   }
 }
 
 export const apiClient = new APIClient();
+
+/** Extract a human-readable message from any thrown API error. */
+export function getApiErrorMessage(err: unknown, fallback = "Something went wrong."): string {
+  if (axios.isAxiosError(err)) {
+    const envelope = err.response?.data as ApiEnvelope | undefined;
+    if (envelope?.error?.message) return envelope.error.message;
+    if (err.message) return err.message;
+  }
+  if (err instanceof Error) return err.message;
+  return fallback;
+}
+
+/** Extract the structured error code (e.g. "forbidden") if present. */
+export function getApiErrorCode(err: unknown): string | null {
+  if (axios.isAxiosError(err)) {
+    const envelope = err.response?.data as ApiEnvelope | undefined;
+    return envelope?.error?.code ?? null;
+  }
+  return null;
+}
 

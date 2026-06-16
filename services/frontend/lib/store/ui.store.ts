@@ -6,6 +6,9 @@ interface UIStore {
   toggleSidebar: () => void;
   mobileMenuOpen: boolean;
   setMobileMenuOpen: (open: boolean) => void;
+  commandOpen: boolean;
+  setCommandOpen: (open: boolean) => void;
+  toggleCommand: () => void;
   activeModal: string | null;
   setActiveModal: (modal: string | null) => void;
   darkMode: boolean;
@@ -19,6 +22,10 @@ export const useUIStore = create<UIStore>((set) => ({
 
   mobileMenuOpen: false,
   setMobileMenuOpen: (open) => set({ mobileMenuOpen: open }),
+
+  commandOpen: false,
+  setCommandOpen: (open) => set({ commandOpen: open }),
+  toggleCommand: () => set((state) => ({ commandOpen: !state.commandOpen })),
 
   activeModal: null,
   setActiveModal: (modal) => set({ activeModal: modal }),

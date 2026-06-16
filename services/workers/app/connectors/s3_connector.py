@@ -10,7 +10,7 @@ from typing import Any, Generator
 import boto3
 from botocore.exceptions import ClientError, NoCredentialsError
 
-from app.connectors.base import BaseConnector, ConnectionTestResult, register_connector
+from app.connectors.base import BaseConnector, ConnectionTestResult, PostureFinding, register_connector
 from app.config import settings
 
 _SUPPORTED_EXT = {".json", ".csv", ".txt", ".log", ".ndjson", ".jsonl"}
@@ -140,6 +140,105 @@ class S3Connector(BaseConnector):
             return [{"_key": key, **dict(row)} for row in csv.DictReader(io.StringIO(text))]
         # .txt / .log
         return [{"_key": key, "line": ln} for ln in raw.decode("utf-8", errors="replace").splitlines() if ln.strip()]
+
+    def posture_check(self) -> list[PostureFinding]:
+        """Audit S3 bucket security controls (public access, encryption, etc.)."""
+        bucket = self.config.get("bucket_name")
+        if not bucket:
+            return []
+        client = self._get_client()
+        findings: list[PostureFinding] = []
+
+        # 1. Public Access Block — must block all four vectors.
+        try:
+            pab = client.get_public_access_block(Bucket=bucket)["PublicAccessBlockConfiguration"]
+            if not all((
+                pab.get("BlockPublicAcls"), pab.get("IgnorePublicAcls"),
+                pab.get("BlockPublicPolicy"), pab.get("RestrictPublicBuckets"),
+            )):
+                findings.append(PostureFinding(
+                    check_id="S3_PUBLIC_ACCESS_BLOCK_INCOMPLETE",
+                    title="S3 bucket Public Access Block is not fully enabled",
+                    severity="critical",
+                    description="One or more Block Public Access settings are disabled, risking public exposure of PII.",
+                    resource=bucket,
+                    remediation="Enable all four Block Public Access settings on the bucket.",
+                ))
+        except ClientError as e:
+            if e.response.get("Error", {}).get("Code") == "NoSuchPublicAccessBlockConfiguration":
+                findings.append(PostureFinding(
+                    check_id="S3_NO_PUBLIC_ACCESS_BLOCK",
+                    title="S3 bucket has no Public Access Block configuration",
+                    severity="critical",
+                    description="Bucket has no Block Public Access configuration; it may be publicly accessible.",
+                    resource=bucket,
+                    remediation="Apply a Block Public Access configuration to the bucket.",
+                ))
+            else:
+                self.log.debug("posture get_public_access_block failed: %s", e)
+
+        # 2. Effective policy status — explicitly public?
+        try:
+            status = client.get_bucket_policy_status(Bucket=bucket)["PolicyStatus"]
+            if status.get("IsPublic"):
+                findings.append(PostureFinding(
+                    check_id="S3_PUBLIC_BUCKET_POLICY",
+                    title="S3 bucket policy grants public access",
+                    severity="critical",
+                    description="The bucket policy evaluates as public. Any data within is internet-accessible.",
+                    resource=bucket,
+                    remediation="Remove public principals ('*') from the bucket policy.",
+                ))
+        except ClientError as e:
+            self.log.debug("posture get_bucket_policy_status failed: %s", e)
+
+        # 3. Default encryption.
+        try:
+            client.get_bucket_encryption(Bucket=bucket)
+        except ClientError as e:
+            if e.response.get("Error", {}).get("Code") == "ServerSideEncryptionConfigurationNotFoundError":
+                findings.append(PostureFinding(
+                    check_id="S3_NO_DEFAULT_ENCRYPTION",
+                    title="S3 bucket has no default encryption",
+                    severity="high",
+                    description="Objects are not encrypted at rest by default.",
+                    resource=bucket,
+                    remediation="Enable default SSE-S3 or SSE-KMS encryption on the bucket.",
+                ))
+            else:
+                self.log.debug("posture get_bucket_encryption failed: %s", e)
+
+        # 4. Versioning (protects against accidental/malicious deletion).
+        try:
+            v = client.get_bucket_versioning(Bucket=bucket)
+            if v.get("Status") != "Enabled":
+                findings.append(PostureFinding(
+                    check_id="S3_VERSIONING_DISABLED",
+                    title="S3 bucket versioning is not enabled",
+                    severity="medium",
+                    description="Without versioning, deleted or overwritten objects cannot be recovered.",
+                    resource=bucket,
+                    remediation="Enable versioning on the bucket.",
+                ))
+        except ClientError as e:
+            self.log.debug("posture get_bucket_versioning failed: %s", e)
+
+        # 5. Access logging.
+        try:
+            lg = client.get_bucket_logging(Bucket=bucket)
+            if "LoggingEnabled" not in lg:
+                findings.append(PostureFinding(
+                    check_id="S3_ACCESS_LOGGING_DISABLED",
+                    title="S3 bucket access logging is disabled",
+                    severity="low",
+                    description="Server access logging is off, reducing auditability of data access.",
+                    resource=bucket,
+                    remediation="Enable server access logging to a dedicated log bucket.",
+                ))
+        except ClientError as e:
+            self.log.debug("posture get_bucket_logging failed: %s", e)
+
+        return findings
 
     def close(self) -> None:
         self._client = None

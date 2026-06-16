@@ -99,7 +99,7 @@ export interface Tenant {
   slug: string;
   plan: typeof PLAN_TYPES[number];
   is_active: boolean;
-  settings: Record<string, any>;
+  settings: Record<string, unknown>;
   data_region: string;
   private_deploy: boolean;
   created_at: string;
@@ -132,7 +132,7 @@ export interface Asset {
   last_scanned_at?: string;
   pii_record_count: number;
   risk_score: number;
-  tags: Record<string, any>;
+  tags: Record<string, unknown>;
   created_at: string;
   updated_at: string;
 }
@@ -146,8 +146,8 @@ export interface Policy {
   status: typeof POLICY_STATUSES[number];
   enforcement_mode: typeof ENFORCEMENT_MODES[number];
   priority: number;
-  rules: Record<string, any>;
-  applies_to: Record<string, any>;
+  rules: Record<string, unknown>;
+  applies_to: Record<string, unknown>;
   created_by?: string;
   version: number;
   created_at: string;
@@ -159,7 +159,7 @@ export interface PolicyVersion {
   policy_id: string;
   tenant_id: string;
   version: number;
-  rules: Record<string, any>;
+  rules: Record<string, unknown>;
   changed_by?: string;
   change_summary: string;
   created_at: string;
@@ -178,7 +178,7 @@ export interface Scan {
   records_scanned: number;
   pii_records_found: number;
   error_message?: string;
-  summary: Record<string, any>;
+  summary: Record<string, unknown>;
   created_at: string;
 }
 
@@ -192,13 +192,13 @@ export interface Finding {
   title: string;
   description: string;
   pii_types: typeof PII_TYPES[number][];
-  location: Record<string, any>;
+  location: Record<string, unknown>;
   sample_count: number;
   is_resolved: boolean;
   resolved_by?: string;
   resolved_at?: string;
   resolution_note?: string;
-  evidence: Record<string, any>;
+  evidence: Record<string, unknown>;
   created_at: string;
 }
 
@@ -227,7 +227,7 @@ export interface Report {
   file_url?: string;
   file_size_bytes?: number;
   generated_by?: string;
-  parameters: Record<string, any>;
+  parameters: Record<string, unknown>;
   created_at: string;
 }
 
@@ -241,7 +241,7 @@ export interface RightsRequest {
   due_date: string;
   assigned_to?: string;
   notes?: string;
-  response_data?: Record<string, any>;
+  response_data?: Record<string, unknown>;
   rejection_reason?: string;
   created_at: string;
   updated_at: string;
@@ -250,27 +250,69 @@ export interface RightsRequest {
 export interface AuditLog {
   id: string;
   tenant_id: string;
-  user_id?: string;
+  user_id: string;
   action: string;
-  resource: string;
-  resource_id?: string;
-  details: Record<string, any>;
-  ip_address?: string;
-  user_agent?: string;
+  resource_type: string;
+  resource_id: string;
+  ip_address: string;
+  user_agent: string;
+  changes: string;
+  timestamp: string;
+}
+
+export const API_KEY_SCOPES = ["read", "write", "gateway", "admin"] as const;
+
+export interface APIKey {
+  id: string;
+  tenant_id: string;
+  user_id: string;
+  name: string;
+  key_prefix: string;
+  scopes: string[];
+  last_used_at?: string;
+  expires_at?: string;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface APIKeyCreateResponse {
+  id: string;
+  tenant_id: string;
+  user_id: string;
+  name: string;
+  key: string; // raw key — shown exactly once
+  key_prefix: string;
+  scopes: string[];
+  expires_at?: string;
+  created_at: string;
+}
+
+export interface DataFlow {
+  id: string;
+  tenant_id: string;
+  source_asset_id?: string;
+  destination_url: string;
+  destination_type: string;
+  pii_types_involved: string[];
+  is_approved: boolean;
+  approved_by?: string;
+  first_detected_at: string;
+  last_seen_at: string;
+  event_count: number;
   created_at: string;
 }
 
 export interface GatewayRule {
   id: string;
   tenant_id: string;
-  policy_id: string;
+  policy_id?: string;
   name: string;
   route_pattern: string;
   http_methods: string[];
   direction: "request" | "response" | "both";
   action: "mask" | "redact" | "block" | "tokenize" | "alert" | "allow";
   pii_types: typeof PII_TYPES[number][];
-  mask_config: Record<string, any>;
+  mask_config: Record<string, unknown>;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -285,7 +327,7 @@ export interface GatewayEvent {
   source_ip: string;
   destination_url: string;
   http_method: string;
-  action_taken: "masked" | "blocked" | "allowed" | "redacted";
+  action_taken: "masked" | "blocked" | "allowed" | "redacted" | "tokenized";
   pii_types_detected: string[];
   field_names: string[];
   payload_size_bytes: number;
@@ -302,16 +344,6 @@ export interface AuthTokenResponse {
   refresh_token: string;
   expires_in: number;
   user: User;
-}
-
-export interface ListResponse<T> {
-  data: T[];
-  meta: {
-    total: number;
-    page: number;
-    page_size: number;
-    has_more: boolean;
-  };
 }
 
 export interface PaginationParams {
@@ -340,17 +372,17 @@ export interface CreateAssetInput {
   asset_type: typeof ASSET_TYPES[number];
   provider: typeof PROVIDERS[number];
   region?: string;
-  connection_config: Record<string, any>;
+  connection_config: Record<string, unknown>;
   credentials_ref?: string;
-  tags?: Record<string, any>;
+  tags?: Record<string, unknown>;
 }
 
 export interface UpdateAssetInput {
   name?: string;
-  connection_config?: Record<string, any>;
+  connection_config?: Record<string, unknown>;
   credentials_ref?: string;
   status?: typeof ASSET_STATUSES[number];
-  tags?: Record<string, any>;
+  tags?: Record<string, unknown>;
 }
 
 export interface CreatePolicyInput {
@@ -360,8 +392,8 @@ export interface CreatePolicyInput {
   status?: typeof POLICY_STATUSES[number];
   enforcement_mode?: typeof ENFORCEMENT_MODES[number];
   priority?: number;
-  rules: Record<string, any>;
-  applies_to?: Record<string, any>;
+  rules: Record<string, unknown>;
+  applies_to?: Record<string, unknown>;
 }
 
 export interface UpdatePolicyInput {
@@ -370,13 +402,12 @@ export interface UpdatePolicyInput {
   status?: typeof POLICY_STATUSES[number];
   enforcement_mode?: typeof ENFORCEMENT_MODES[number];
   priority?: number;
-  rules?: Record<string, any>;
-  applies_to?: Record<string, any>;
+  rules?: Record<string, unknown>;
+  applies_to?: Record<string, unknown>;
   change_summary?: string;
 }
 
 export interface TriggerScanInput {
-  asset_id: string;
   scan_type: typeof SCAN_TYPES[number];
 }
 
@@ -391,25 +422,25 @@ export interface UpdateRightsRequestInput {
   status?: typeof RIGHTS_STATUSES[number];
   assigned_to?: string;
   notes?: string;
-  response_data?: Record<string, any>;
+  response_data?: Record<string, unknown>;
   rejection_reason?: string;
 }
 
 export interface GenerateReportInput {
   report_type: typeof REPORT_TYPES[number];
   title: string;
-  parameters?: Record<string, any>;
+  parameters?: Record<string, unknown>;
 }
 
 export interface CreateGatewayRuleInput {
-  policy_id: string;
+  policy_id?: string;
   name: string;
   route_pattern: string;
   http_methods?: string[];
   direction?: "request" | "response" | "both";
   action: "mask" | "redact" | "block" | "tokenize" | "alert" | "allow";
   pii_types?: string[];
-  mask_config?: Record<string, any>;
+  mask_config?: Record<string, unknown>;
 }
 
 export interface UpdateGatewayRuleInput {
@@ -419,7 +450,7 @@ export interface UpdateGatewayRuleInput {
   direction?: "request" | "response" | "both";
   action?: string;
   pii_types?: string[];
-  mask_config?: Record<string, any>;
+  mask_config?: Record<string, unknown>;
   is_active?: boolean;
 }
 
@@ -465,18 +496,48 @@ export interface PolicyListFilter extends PaginationParams {
 
 // ========== Dashboard Types ==========
 
-export interface DashboardStats {
-  total_assets: number;
-  total_findings: number;
-  critical_findings: number;
-  unresolved_violations: number;
+export interface RiskAssetRef {
+  id: string;
+  name: string;
+  asset_type: string;
   risk_score: number;
-  active_policies: number;
 }
 
-export interface RiskScoreTrend {
+export interface DashboardSummary {
+  compliance_score: number;
+  total_assets: number;
+  pii_records_exposed: number;
+  open_findings: number;
+  critical_findings: number;
+  unacknowledged_alerts: number;
+  overdue_rights_requests: number;
+  active_policies: number;
+  last_scan_at?: string;
+  findings_by_severity: Record<string, number>;
+  top_risk_assets: RiskAssetRef[];
+  recent_alerts: Alert[];
+}
+
+export interface DPDPCheck {
+  requirement: string;
+  status: "compliant" | "gap" | "non_compliant";
+  details: string;
+}
+
+export interface DPDPStatus {
+  overall_status: "compliant" | "gap" | "non_compliant";
+  checks: DPDPCheck[];
+  as_of: string;
+}
+
+export interface TrendPoint {
   date: string;
-  score: number;
+  critical?: number;
+  high?: number;
+  medium?: number;
+  low?: number;
+  info?: number;
+  total?: number;
 }
 
 export interface FindingsSummary {
@@ -488,17 +549,160 @@ export interface FindingsSummary {
 }
 
 export interface GatewayStats {
-  requests_per_second: number;
-  block_rate: number;
-  average_latency_ms: number;
-  top_pii_type: string;
   total_events: number;
+  blocked: number;
+  masked: number;
+  allowed: number;
+  redacted: number;
+  tokenized?: number;
+  block_rate: number;
+  avg_latency_ms: number;
+  pii_detections: number;
+  llm_calls?: number;
+  period_hours?: number;
+  by_pii_type?: Record<string, number>;
+  by_action?: Record<string, number>;
+  timeline?: { ts: string; count: number; blocked?: number }[];
 }
 
-export interface DPDPStatus {
-  compliance_percentage: number;
-  critical_issues: number;
-  deadlines_approaching: number;
-  policies_active: number;
+// ========== Remaining Request DTOs ==========
+
+export interface ChangePasswordInput {
+  current_password: string;
+  new_password: string;
+}
+
+export interface InviteUserInput {
+  email: string;
+  full_name: string;
+  role: "admin" | "analyst" | "viewer";
+}
+
+export interface UpdateUserInput {
+  full_name?: string;
+  role?: typeof ROLES[number];
+  is_active?: boolean;
+}
+
+export interface CreateAPIKeyInput {
+  name: string;
+  scopes: string[];
+  expires_at?: string | null;
+}
+
+export interface UpdateAPIKeyInput {
+  name?: string;
+  scopes?: string[];
+  expires_at?: string | null;
+}
+
+export interface ResolveFindingInput {
+  resolution_note: string;
+}
+
+export interface AuditLogFilter extends PaginationParams {
+  action?: string;
+  resource_type?: string;
+  user_id?: string;
+}
+
+// ========== Consent ==========
+
+export const CONSENT_MECHANISMS = ["form", "api", "sdk", "import"] as const;
+
+export interface ConsentRecord {
+  id: string;
+  tenant_id: string;
+  data_principal_id: string;
+  purpose: string;
+  consent_given: boolean;
+  consent_timestamp?: string;
+  withdrawal_timestamp?: string;
+  notice_version?: string;
+  ip_address?: string;
+  consent_mechanism: typeof CONSENT_MECHANISMS[number];
+  metadata: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface ConsentPurposeStat {
+  purpose: string;
+  total: number;
+  given_count: number;
+  withdrawn_count: number;
+}
+
+export interface ConsentSummary {
+  total_records: number;
+  consent_given: number;
+  consent_withdrawn: number;
+  by_purpose: ConsentPurposeStat[];
+}
+
+export interface ConsentPrincipalResult {
+  data_principal_id: string;
+  records: ConsentRecord[];
+  count: number;
+}
+
+export interface RecordConsentInput {
+  data_principal_id: string;
+  purpose: string;
+  consent_given: boolean;
+  notice_version?: string;
+  consent_timestamp?: string;
+  mechanism?: typeof CONSENT_MECHANISMS[number];
+  metadata?: Record<string, unknown>;
+}
+
+// ========== Webhooks / Integrations ==========
+
+export const WEBHOOK_CHANNELS = ["slack", "pagerduty", "email", "jira", "http"] as const;
+
+export interface Webhook {
+  id: string;
+  tenant_id: string;
+  name: string;
+  channel: typeof WEBHOOK_CHANNELS[number];
+  url?: string;
+  email?: string;
+  events: string[];
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateWebhookInput {
+  name: string;
+  channel: typeof WEBHOOK_CHANNELS[number];
+  url?: string;
+  email?: string;
+  headers?: Record<string, string>;
+  events: string[];
+}
+
+export interface UpdateWebhookInput {
+  name?: string;
+  url?: string;
+  email?: string;
+  headers?: Record<string, string>;
+  events?: string[];
+  is_active?: boolean;
+}
+
+export interface WebhookCreateResult {
+  webhook: Webhook;
+  signing_secret?: string;
+  note?: string;
+}
+
+export interface NotificationPrefs {
+  email_recipients: string[];
+  slack_channel: string;
+  min_severity: string;
+  quiet_hours_start: string;
+  quiet_hours_end: string;
+  escalation_hours: number;
+  escalation_emails: string[];
 }
 

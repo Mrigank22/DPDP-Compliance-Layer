@@ -1,7 +1,6 @@
 import { apiClient } from "@/lib/api-client";
 import {
   RightsRequest,
-  ListResponse,
   CreateRightsRequestInput,
   UpdateRightsRequestInput,
   RightsRequestListFilter,
@@ -9,10 +8,9 @@ import {
 
 export const rightsAPI = {
   list: (filters?: RightsRequestListFilter) =>
-    apiClient.get<ListResponse<RightsRequest>>("/rights-requests", { params: filters }),
+    apiClient.get<RightsRequest[]>("/rights-requests", { params: filters }),
 
-  get: (id: string) =>
-    apiClient.get<RightsRequest>(`/rights-requests/${id}`),
+  get: (id: string) => apiClient.get<RightsRequest>(`/rights-requests/${id}`),
 
   create: (data: CreateRightsRequestInput) =>
     apiClient.post<RightsRequest>("/rights-requests", data),
@@ -20,19 +18,19 @@ export const rightsAPI = {
   update: (id: string, data: UpdateRightsRequestInput) =>
     apiClient.patch<RightsRequest>(`/rights-requests/${id}`, data),
 
-  assign: (id: string, data: { assigned_to: string }) =>
-    apiClient.post(`/rights-requests/${id}/assign`, data),
+  assign: (id: string, assigneeId: string) =>
+    apiClient.post<RightsRequest>(`/rights-requests/${id}/assign`, { assignee_id: assigneeId }),
 
-  complete: (id: string, data: UpdateRightsRequestInput) =>
-    apiClient.post(`/rights-requests/${id}/complete`, data),
+  complete: (id: string, responseData: Record<string, unknown>) =>
+    apiClient.post<RightsRequest>(`/rights-requests/${id}/complete`, { response_data: responseData }),
 
-  reject: (id: string, data: { rejection_reason: string }) =>
-    apiClient.post(`/rights-requests/${id}/reject`, data),
+  reject: (id: string, reason: string) =>
+    apiClient.post<RightsRequest>(`/rights-requests/${id}/reject`, { reason }),
 
   overdue: () =>
-    apiClient.get<ListResponse<RightsRequest>>("/rights-requests/overdue"),
+    apiClient.get<{ requests: RightsRequest[]; count: number }>("/rights-requests/overdue"),
 
-  search: (id: string, data: { data_principal_email: string }) =>
-    apiClient.post(`/rights-requests/${id}/search`, data),
+  search: (id: string) =>
+    apiClient.post<{ task_id: string; message: string }>(`/rights-requests/${id}/search`),
 };
 

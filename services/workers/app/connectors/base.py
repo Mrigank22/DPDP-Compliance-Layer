@@ -15,10 +15,22 @@ class ConnectionTestResult:
     details: dict[str, Any] | None = None
 
 
+@dataclass
+class PostureFinding:
+    """A single security misconfiguration discovered for an asset."""
+    check_id: str
+    title: str
+    severity: str          # critical | high | medium | low
+    description: str
+    resource: str          # bucket name, table, instance, etc.
+    remediation: str = ""
+
+
 class BaseConnector(abc.ABC):
     """
     Abstract connector that all asset connectors must implement.
     Provides: test_connection, list_sources, stream_batches.
+    Optional: search_records (native push-down), posture_check (misconfig scan).
     """
 
     def __init__(self, asset_id: str, tenant_id: str, config: dict[str, Any]):
@@ -40,6 +52,24 @@ class BaseConnector(abc.ABC):
         batch_size: int = 500,
         max_records: int | None = None,
     ) -> Generator[list[dict[str, Any]], None, None]: ...
+
+    def search_records(self, source_name: str, term: str, max_matches: int = 1000) -> int | None:
+        """
+        Optionally push a substring search down to the data source and return the
+        number of matching records (capped at ``max_matches``).
+
+        Returns ``None`` when the connector cannot search natively, signalling the
+        caller to fall back to streaming + in-process matching.
+        """
+        return None
+
+    def posture_check(self) -> list[PostureFinding]:
+        """
+        Return security misconfigurations for this asset. Connectors that can
+        inspect their backing resource (e.g. S3 bucket settings) override this.
+        Default: no posture checks.
+        """
+        return []
 
     def close(self) -> None:
         pass

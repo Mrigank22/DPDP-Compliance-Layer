@@ -1,6 +1,8 @@
 import { apiClient } from "@/lib/api-client";
 import {
   AuthTokenResponse,
+  ChangePasswordInput,
+  InviteUserInput,
   LoginInput,
   RegisterInput,
   User,
@@ -13,22 +15,20 @@ export const authAPI = {
   login: (data: LoginInput) =>
     apiClient.post<AuthTokenResponse>("/auth/login", data),
 
-  refresh: () =>
-    apiClient.post<AuthTokenResponse>("/auth/refresh"),
+  refresh: (refreshToken: string) =>
+    apiClient.post<AuthTokenResponse>("/auth/refresh", { refresh_token: refreshToken }),
 
-  logout: () =>
-    apiClient.post("/auth/logout"),
+  logout: () => apiClient.post("/auth/logout"),
 
-  me: () =>
-    apiClient.get<User>("/auth/me"),
+  me: () => apiClient.get<User>("/auth/me"),
 
-  changePassword: (data: { old_password: string; new_password: string }) =>
+  changePassword: (data: ChangePasswordInput) =>
     apiClient.put("/auth/change-password", data),
 
   enableMFA: () =>
-    apiClient.post<{ secret: string; qr_code: string }>("/auth/mfa/enable"),
+    apiClient.post<{ secret: string; qr_code?: string; otpauth_url?: string }>("/auth/mfa/enable"),
 
-  verifyMFA: (data: { code: string }) =>
+  verifyMFA: (data: { totp_code: string }) =>
     apiClient.post("/auth/mfa/verify", data),
 
   forgotPassword: (email: string) =>
@@ -37,8 +37,7 @@ export const authAPI = {
   resetPassword: (token: string, password: string) =>
     apiClient.post("/auth/reset-password", { token, password }),
 
-  inviteUser: (data: { email: string; full_name: string; role: string }) =>
-    apiClient.post("/auth/invite", data),
+  inviteUser: (data: InviteUserInput) => apiClient.post("/auth/invite", data),
 
   acceptInvite: (token: string) =>
     apiClient.post("/auth/accept-invite", { token }),

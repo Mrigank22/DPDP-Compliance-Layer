@@ -75,7 +75,13 @@ def run_scan(self, scan_id: str, asset_id: str, tenant_id: str, scan_type: str) 
             summary, findings = _execute_scan(asset, conn_config, tenant_id, scan_id, scan_type)
 
             if findings:
-                db.bulk_save_objects(findings)
+                _reconcile_findings(
+                    db, asset_id, "pii_exposure", scan_id, findings,
+                    key_fn=lambda f: (
+                        (f.location or {}).get("source"),
+                        f.pii_types[0] if f.pii_types else None,
+                    ),
+                )
 
             pii_count = sum(f.sample_count for f in findings)
             db.query(Scan).filter(Scan.id == scan_id).update({
@@ -174,6 +180,47 @@ def _execute_scan(
 
     summary["pii_records_found"] = sum(summary["pii_by_type"].values())
     return summary, all_findings
+
+
+def _reconcile_findings(
+    db,
+    asset_id: str,
+    finding_type: str,
+    scan_id: str | None,
+    new_findings: list[Finding],
+    key_fn,
+) -> None:
+    """
+    Idempotently persist findings: update the matching open finding in place
+    (refreshing severity/count/scan) instead of inserting a duplicate on every
+    rescan. Genuinely new findings are inserted. Resolved findings are left
+    untouched; if their PII is re-detected a fresh open finding is created.
+    """
+    existing = db.query(Finding).filter(
+        Finding.asset_id == asset_id,
+        Finding.finding_type == finding_type,
+        Finding.is_resolved == False,  # noqa: E712
+    ).all()
+    index: dict = {}
+    for f in existing:
+        index[key_fn(f)] = f
+
+    for nf in new_findings:
+        key = key_fn(nf)
+        cur = index.get(key)
+        if cur is not None:
+            cur.severity = nf.severity
+            cur.title = nf.title
+            cur.description = nf.description
+            cur.sample_count = nf.sample_count
+            cur.location = nf.location
+            cur.evidence = nf.evidence
+            cur.pii_types = nf.pii_types
+            if scan_id is not None:
+                cur.scan_id = scan_id
+        else:
+            db.add(nf)
+            index[key] = nf
 
 
 def _severity(pii_type: str) -> str:

@@ -190,10 +190,10 @@ func (h *ConsentHandler) Summary(c *gin.Context) {
 	ctx := c.Request.Context()
 
 	type purposeRow struct {
-		Purpose        string `bun:"purpose"`
-		Total          int64  `bun:"total"`
-		GivenCount     int64  `bun:"given_count"`
-		WithdrawnCount int64  `bun:"withdrawn_count"`
+		Purpose        string `bun:"purpose"          json:"purpose"`
+		Total          int64  `bun:"total"            json:"total"`
+		GivenCount     int64  `bun:"given_count"      json:"given_count"`
+		WithdrawnCount int64  `bun:"withdrawn_count"  json:"withdrawn_count"`
 	}
 
 	total, _ := h.pg.NewSelect().Model((*models.ConsentRecord)(nil)).

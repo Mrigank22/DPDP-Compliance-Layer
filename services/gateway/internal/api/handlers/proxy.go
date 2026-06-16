@@ -5,7 +5,6 @@ package handlers
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -16,20 +15,26 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 
 	"github.com/datasentinel/gateway/internal/audit"
 	"github.com/datasentinel/gateway/internal/config"
+	"github.com/datasentinel/gateway/internal/controlplane"
 	"github.com/datasentinel/gateway/internal/engine"
+	"github.com/datasentinel/gateway/internal/metrics"
 	"github.com/datasentinel/gateway/internal/policy"
 )
 
 // ProxyHandler is the main handler that intercepts, inspects, and forwards requests.
 type ProxyHandler struct {
-	cfg       *config.Config
-	detector  *engine.Detector
+	cfg          *config.Config
+	detector     *engine.Detector
 	policyLoader *policy.PolicyLoader
 	auditWriter  *audit.Writer
+	cp           *controlplane.Client
+	rdb          *redis.Client
+	metrics      *metrics.Metrics
 	transport    *http.Transport
 	log          *zap.Logger
 }
@@ -40,6 +45,9 @@ func NewProxyHandler(
 	detector *engine.Detector,
 	pl *policy.PolicyLoader,
 	aw *audit.Writer,
+	cp *controlplane.Client,
+	rdb *redis.Client,
+	m *metrics.Metrics,
 	log *zap.Logger,
 ) *ProxyHandler {
 	transport := &http.Transport{
@@ -47,10 +55,10 @@ func NewProxyHandler(
 			Timeout:   cfg.UpstreamDialTimeout,
 			KeepAlive: 30 * time.Second,
 		}).DialContext,
-		MaxIdleConns:        200,
-		MaxIdleConnsPerHost: 20,
-		IdleConnTimeout:     90 * time.Second,
-		TLSHandshakeTimeout: 10 * time.Second,
+		MaxIdleConns:          200,
+		MaxIdleConnsPerHost:   20,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
 		ResponseHeaderTimeout: cfg.UpstreamReadTimeout,
 	}
 	return &ProxyHandler{
@@ -58,6 +66,9 @@ func NewProxyHandler(
 		detector:     detector,
 		policyLoader: pl,
 		auditWriter:  aw,
+		cp:           cp,
+		rdb:          rdb,
+		metrics:      m,
 		transport:    transport,
 		log:          log,
 	}
@@ -92,6 +103,12 @@ func (h *ProxyHandler) Handle(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid X-Upstream-URL"})
 		return
 	}
+	// SSRF guard: never proxy to cloud metadata / link-local endpoints. Normal
+	// private ranges remain allowed so legitimate internal-API proxying works.
+	if isBlockedDestination(parsedUpstream) {
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "destination not permitted"})
+		return
+	}
 
 	// Load gateway rules for this tenant
 	rules, err := h.policyLoader.GetRules(c.Request.Context(), tid)
@@ -119,11 +136,10 @@ func (h *ProxyHandler) Handle(c *gin.Context) {
 	matchedRules := rules.MatchRules(c.Request.Method, c.Request.URL.Path, "request")
 
 	var (
-		requestWasBlocked  bool
-		requestAction      = "allow"
-		requestPIITypes    []string
-		requestFieldNames  []string
-		modifiedRequest    = requestBody
+		requestAction     = "allow"
+		requestPIITypes   []string
+		requestFieldNames []string
+		modifiedRequest   = requestBody
 	)
 
 	for _, rule := range matchedRules {
@@ -142,7 +158,6 @@ func (h *ProxyHandler) Handle(c *gin.Context) {
 
 		switch rule.Action {
 		case "block":
-			requestWasBlocked = true
 			requestAction = "blocked"
 			h.writeEvent(tid, rule, requestID, c, "blocked", requestPIITypes, requestFieldNames,
 				len(requestBody), start, isLLMURL(upstreamURL))
@@ -169,17 +184,46 @@ func (h *ProxyHandler) Handle(c *gin.Context) {
 			}
 
 		case "tokenize":
-			// Tokenization handled inline; vault backed by Redis per-tenant
-			requestAction = "tokenized"
+			// Reversible, format-aware tokenization backed by the per-tenant
+			// Redis vault. PII never leaves the estate in cleartext.
+			vault := engine.NewTokenVault(h.rdb, tid)
+			tokenized, _, terr := vault.TokenizeJSON(c.Request.Context(), modifiedRequest, detections)
+			if terr != nil {
+				h.log.Warn("tokenization failed — falling back to redaction",
+					zap.String("tenant_id", tid), zap.Error(terr))
+				if red, _, rerr := engine.RedactJSON(modifiedRequest, detections); rerr == nil {
+					modifiedRequest = red
+				}
+				requestAction = "redacted"
+			} else {
+				modifiedRequest = tokenized
+				requestAction = "tokenized"
+			}
+
+		case "encrypt":
+			if enc, _, eerr := engine.EncryptJSON(modifiedRequest, detections, h.cfg.MasterEncryptionKey, tid); eerr == nil {
+				modifiedRequest = enc
+				requestAction = "encrypted"
+			} else {
+				h.log.Warn("encrypt action failed", zap.String("tenant_id", tid), zap.Error(eerr))
+			}
+
+		case "hash":
+			if hashed, _, herr := engine.HashJSON(modifiedRequest, detections); herr == nil {
+				modifiedRequest = hashed
+				requestAction = "hashed"
+			}
 
 		case "alert":
 			requestAction = "alert"
-			// Alert is dispatched to control plane asynchronously
-			go h.sendAlert(context.Background(), tid, rule, requestPIITypes, upstreamURL)
+			go h.cp.RaiseAlert(context.Background(), tid, controlplane.AlertInput{
+				AlertType: "policy_violation",
+				Severity:  "high",
+				Title:     "Gateway policy violation: " + rule.Name,
+				Body:      "PII types detected in request to " + upstreamURL,
+			})
 		}
 	}
-
-	_ = requestWasBlocked
 
 	// ── Phase 2: Forward request upstream ───────────────────────────────────
 	upstreamReq, err := h.buildUpstreamRequest(c, parsedUpstream, modifiedRequest)
@@ -237,7 +281,11 @@ func (h *ProxyHandler) Handle(c *gin.Context) {
 			// For response blocking, return an empty body with the status
 			modifiedResponse = []byte(`{"error":"response blocked by data privacy policy"}`)
 			upstreamResp.StatusCode = http.StatusForbidden
-			go h.sendAlert(context.Background(), tid, rule, responsePIITypes, upstreamURL)
+			go h.cp.RaiseAlert(context.Background(), tid, controlplane.AlertInput{
+				AlertType: "policy_violation", Severity: "high",
+				Title: "Gateway blocked a response: " + rule.Name,
+				Body:  "PII detected in response from " + upstreamURL,
+			})
 
 		case "mask":
 			cfg := maskConfigFromRule(rule)
@@ -254,9 +302,32 @@ func (h *ProxyHandler) Handle(c *gin.Context) {
 				responseAction = "redacted"
 			}
 
+		case "tokenize":
+			vault := engine.NewTokenVault(h.rdb, tid)
+			if tokenized, _, terr := vault.TokenizeJSON(c.Request.Context(), modifiedResponse, detections); terr == nil {
+				modifiedResponse = tokenized
+				responseAction = "tokenized"
+			}
+
+		case "encrypt":
+			if enc, _, eerr := engine.EncryptJSON(modifiedResponse, detections, h.cfg.MasterEncryptionKey, tid); eerr == nil {
+				modifiedResponse = enc
+				responseAction = "encrypted"
+			}
+
+		case "hash":
+			if hashed, _, herr := engine.HashJSON(modifiedResponse, detections); herr == nil {
+				modifiedResponse = hashed
+				responseAction = "hashed"
+			}
+
 		case "alert":
 			responseAction = "alert"
-			go h.sendAlert(context.Background(), tid, rule, responsePIITypes, upstreamURL)
+			go h.cp.RaiseAlert(context.Background(), tid, controlplane.AlertInput{
+				AlertType: "policy_violation", Severity: "high",
+				Title: "Gateway policy alert: " + rule.Name,
+				Body:  "PII detected in response from " + upstreamURL,
+			})
 		}
 	}
 
@@ -298,7 +369,20 @@ func (h *ProxyHandler) Handle(c *gin.Context) {
 		LLMProvider:         detectLLMProvider(upstreamURL),
 		PolicyID:            policyID,
 	})
+	// Register the egress data flow so it surfaces on the data-flow map. Only
+	// when actual PII was observed leaving toward an external destination.
+	if len(allPIITypes) > 0 {
+		destType := "external_api"
+		if isLLMURL(upstreamURL) {
+			destType = "llm"
+		}
+		go h.cp.RegisterDataFlow(context.Background(), tid, upstreamURL, destType, allPIITypes)
+	}
 
+	if h.metrics != nil {
+		h.metrics.RecordRequest(finalAction, uint64(latencyMs), allPIITypes,
+			finalAction == "blocked", isLLMURL(upstreamURL))
+	}
 	// ── Phase 5: Stream response to client ───────────────────────────────────
 	h.copyResponseHeaders(c.Writer, upstreamResp)
 	c.Writer.WriteHeader(upstreamResp.StatusCode)
@@ -308,23 +392,17 @@ func (h *ProxyHandler) Handle(c *gin.Context) {
 // ---- Helpers ----------------------------------------------------------------
 
 // detectForRule scans a payload according to the rule's pii_types filter.
-// If pii_types is empty, all PII types are checked.
+// If pii_types is empty, all PII types are checked. The filter is pushed down
+// into the detector so irrelevant patterns are never evaluated.
 func (h *ProxyHandler) detectForRule(data []byte, rule *policy.GatewayRule) []engine.DetectionResult {
-	all := h.detector.ScanJSON(data)
 	if len(rule.PIITypes) == 0 {
-		return all
+		return h.detector.ScanJSON(data)
 	}
 	filter := make(map[string]bool, len(rule.PIITypes))
 	for _, pt := range rule.PIITypes {
 		filter[pt] = true
 	}
-	var filtered []engine.DetectionResult
-	for _, d := range all {
-		if filter[d.PIIType] {
-			filtered = append(filtered, d)
-		}
-	}
-	return filtered
+	return h.detector.ScanJSONFiltered(data, filter)
 }
 
 // buildUpstreamRequest constructs the outbound request to the upstream service.
@@ -416,6 +494,9 @@ func (h *ProxyHandler) copyResponseHeaders(w gin.ResponseWriter, resp *http.Resp
 func (h *ProxyHandler) writeEvent(tenantID string, rule *policy.GatewayRule, requestID string,
 	c *gin.Context, action string, piiTypes, fields []string, bodySize int, start time.Time, isLLM bool) {
 	latencyMs := uint16(time.Since(start).Milliseconds())
+	if h.metrics != nil {
+		h.metrics.RecordRequest(action, uint64(latencyMs), piiTypes, action == "blocked", isLLM)
+	}
 	h.auditWriter.Write(&audit.GatewayEvent{
 		TenantID:            tenantID,
 		GatewayRuleID:       rule.ID,
@@ -432,27 +513,6 @@ func (h *ProxyHandler) writeEvent(tenantID string, rule *policy.GatewayRule, req
 		LLMProvider:         detectLLMProvider(c.GetHeader("X-Upstream-URL")),
 		PolicyID:            rule.PolicyID,
 	})
-}
-
-// sendAlert calls the control plane to create a new alert record.
-func (h *ProxyHandler) sendAlert(ctx context.Context, tenantID string, rule *policy.GatewayRule, piiTypes []string, destination string) {
-	url := fmt.Sprintf("%s/api/v1/internal/alerts", h.cfg.ControlPlaneURL)
-	payload := fmt.Sprintf(`{"tenant_id":%q,"alert_type":"policy_violation","severity":"high","title":"Gateway policy violation: %s","body":"PII types detected: %s sent to %s","related_asset_id":null}`,
-		tenantID, rule.Name, strings.Join(piiTypes, ", "), destination)
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url,
-		strings.NewReader(payload))
-	if err != nil {
-		return
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-API-Key", h.cfg.ControlPlaneAPIKey)
-
-	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Do(req)
-	if err == nil {
-		resp.Body.Close()
-	}
 }
 
 func maskConfigFromRule(rule *policy.GatewayRule) engine.MaskingConfig {
@@ -497,6 +557,33 @@ func isLLMURL(u string) bool {
 	lower := strings.ToLower(u)
 	for _, host := range llmHosts {
 		if strings.Contains(lower, host) {
+			return true
+		}
+	}
+	return false
+}
+
+// IsLLMUpstream reports whether an upstream URL targets a known LLM provider.
+// Exported for the router to dispatch LLM traffic to the LLM handler.
+func IsLLMUpstream(u string) bool { return isLLMURL(u) }
+
+// blockedMetadataHosts are SSRF-sensitive endpoints that must never be proxied.
+var blockedMetadataHosts = map[string]bool{
+	"169.254.169.254":          true, // AWS/GCP/Azure instance metadata (IMDS)
+	"metadata.google.internal": true, // GCP metadata DNS name
+	"100.100.100.200":          true, // Alibaba Cloud metadata
+}
+
+// isBlockedDestination reports whether a destination is an SSRF-sensitive host
+// (cloud metadata or any link-local address). Standard private ranges are NOT
+// blocked so the gateway can still front legitimate internal APIs.
+func isBlockedDestination(parsed *url.URL) bool {
+	host := strings.ToLower(parsed.Hostname())
+	if blockedMetadataHosts[host] {
+		return true
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
 			return true
 		}
 	}

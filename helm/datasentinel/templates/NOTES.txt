@@ -1,0 +1,60 @@
+{{- $dash := .Values.ingress.dashboard.host -}}
+============================================================================
+  DataSentinel {{ .Chart.AppVersion }} deployed as release "{{ .Release.Name }}"
+  Namespace: {{ .Release.Namespace }}
+============================================================================
+
+Components enabled:
+  - control-plane : {{ ternary "yes" "no" .Values.controlPlane.enabled }}
+  - gateway       : {{ ternary "yes" "no" .Values.gateway.enabled }}
+  - workers       : {{ ternary "yes" "no" .Values.workers.enabled }} ({{ len .Values.workers.queues }} queues{{ if .Values.workers.beat.enabled }} + beat{{ end }}{{ if .Values.workers.flower.enabled }} + flower{{ end }})
+  - frontend      : {{ ternary "yes" "no" .Values.frontend.enabled }}
+
+1. Check rollout status:
+
+   kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "datasentinel.controlPlane.fullname" . }}
+   kubectl -n {{ .Release.Namespace }} get pods -l app.kubernetes.io/instance={{ .Release.Name }}
+
+{{- if .Values.ingress.enabled }}
+
+2. Access the dashboard (once DNS + TLS are ready):
+
+   https://{{ $dash }}/
+   API:  https://{{ $dash }}{{ .Values.ingress.dashboard.apiPath }}
+{{- else }}
+
+2. Ingress is disabled. Port-forward to reach the services locally:
+
+   kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "datasentinel.frontend.fullname" . }} 3000:{{ .Values.frontend.service.port }}
+   kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "datasentinel.controlPlane.fullname" . }} 3001:{{ .Values.controlPlane.service.port }}
+{{- end }}
+
+3. The control-plane runs database migrations automatically on startup
+   (advisory-locked, safe across replicas). Watch the logs to confirm:
+
+   kubectl -n {{ .Release.Namespace }} logs deploy/{{ include "datasentinel.controlPlane.fullname" . }} | grep -i migrat
+
+{{- if and .Values.secrets.create (not .Values.externalSecrets.enabled) }}
+
+⚠  SECURITY WARNING
+   This release used chart-managed Secrets. The default values ship
+   placeholder credentials. For any non-throwaway environment you MUST set:
+
+     secrets.masterEncryptionKey   (openssl rand -hex 32)
+     secrets.internalApiKey        (openssl rand -hex 24)
+     database.password / redis.password / clickhouse.password
+     jwt.privateKey / jwt.publicKey  (RS256 PEM, see README)
+
+   Production: set externalSecrets.enabled=true (and secrets.create=false)
+   to source all of the above from your secret manager.
+{{- end }}
+{{- if eq .Values.secrets.masterEncryptionKey "cbc4565ddbfe08d7c55bc3bf8c15e2e1f5a06fc9d1e9dc1a5cda50fac4fa64da" }}
+
+‼  masterEncryptionKey is still the DEFAULT demo key. Data encrypted with it is
+   NOT secure. Override it before storing real data — and keep it stable, or
+   previously-encrypted asset credentials become unrecoverable.
+{{- end }}
+
+Run the bundled smoke test any time:
+
+   helm test {{ .Release.Name }} -n {{ .Release.Namespace }}
