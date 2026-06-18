@@ -4,6 +4,7 @@ package services
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -35,12 +36,12 @@ type WorkerService struct {
 
 // Queue name constants — must match Celery worker queue definitions.
 const (
-	QueueDiscovery     = "discovery"
+	QueueDiscovery      = "discovery"
 	QueueClassification = "classification"
-	QueuePosture       = "posture"
-	QueueRights        = "rights"
-	QueueNotifications = "notifications"
-	QueueReports       = "reports"
+	QueuePosture        = "posture"
+	QueueRights         = "rights"
+	QueueNotifications  = "notifications"
+	QueueReports        = "reports"
 )
 
 // NewWorkerService creates a WorkerService.
@@ -114,9 +115,19 @@ func (s *WorkerService) TestAssetConnection(ctx context.Context, assetID, tenant
 // publish serialises a task and pushes it to the named Celery queue in Redis.
 // Celery uses a LPUSH to `celery` key with a Kombu-formatted message.
 func (s *WorkerService) publish(ctx context.Context, queue string, task *celeryTask) error {
+	// Step 1 — marshal the task body to JSON bytes first
+	bodyBytes, err := json.Marshal(task)
+	if err != nil {
+		return fmt.Errorf("marshal task body: %w", err)
+	}
+
+	// Step 2 — base64-encode the body (Kombu protocol v2 expects this)
+	bodyB64 := base64.StdEncoding.EncodeToString(bodyBytes)
+
+	// Step 3 — wrap in the Kombu envelope
 	payload, err := json.Marshal(map[string]any{
-		"body":            task,
-		"content-type":    "application/json",
+		"body":             bodyB64,
+		"content-type":     "application/json",
 		"content-encoding": "utf-8",
 		"headers": map[string]any{
 			"task":    task.Task,
@@ -124,9 +135,9 @@ func (s *WorkerService) publish(ctx context.Context, queue string, task *celeryT
 			"retries": task.Retries,
 		},
 		"properties": map[string]any{
-			"reply_to":    "",
+			"reply_to":      "",
 			"delivery_mode": 2,
-			"delivery_tag": uuid.New().String(),
+			"delivery_tag":  uuid.New().String(),
 			"delivery_info": map[string]any{
 				"exchange":    "",
 				"routing_key": queue,
@@ -134,7 +145,7 @@ func (s *WorkerService) publish(ctx context.Context, queue string, task *celeryT
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("marshal task: %w", err)
+		return fmt.Errorf("marshal task envelope: %w", err)
 	}
 
 	if err := s.redis.LPush(ctx, queue, payload).Err(); err != nil {

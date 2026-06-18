@@ -99,14 +99,38 @@ func (s *GatewayService) UpdateRule(ctx context.Context, id, tenantID string, in
 	}
 	q := s.pg.NewUpdate().Model(rule).Where("id = ? AND tenant_id = ?", id, tenantID)
 
-	if input.Name != nil { rule.Name = *input.Name; q = q.Set("name = ?", *input.Name) }
-	if input.RoutePattern != nil { rule.RoutePattern = *input.RoutePattern; q = q.Set("route_pattern = ?", *input.RoutePattern) }
-	if input.Direction != nil { rule.Direction = *input.Direction; q = q.Set("direction = ?", *input.Direction) }
-	if input.Action != nil { rule.Action = *input.Action; q = q.Set("action = ?", *input.Action) }
-	if input.IsActive != nil { rule.IsActive = *input.IsActive; q = q.Set("is_active = ?", *input.IsActive) }
-	if len(input.HTTPMethods) > 0 { rule.HTTPMethods = input.HTTPMethods; q = q.Set("http_methods = ?", input.HTTPMethods) }
-	if len(input.PIITypes) > 0 { rule.PIITypes = input.PIITypes; q = q.Set("pii_types = ?", input.PIITypes) }
-	if input.MaskConfig != nil { rule.MaskConfig = input.MaskConfig; q = q.Set("mask_config = ?", input.MaskConfig) }
+	if input.Name != nil {
+		rule.Name = *input.Name
+		q = q.Set("name = ?", *input.Name)
+	}
+	if input.RoutePattern != nil {
+		rule.RoutePattern = *input.RoutePattern
+		q = q.Set("route_pattern = ?", *input.RoutePattern)
+	}
+	if input.Direction != nil {
+		rule.Direction = *input.Direction
+		q = q.Set("direction = ?", *input.Direction)
+	}
+	if input.Action != nil {
+		rule.Action = *input.Action
+		q = q.Set("action = ?", *input.Action)
+	}
+	if input.IsActive != nil {
+		rule.IsActive = *input.IsActive
+		q = q.Set("is_active = ?", *input.IsActive)
+	}
+	if len(input.HTTPMethods) > 0 {
+		rule.HTTPMethods = input.HTTPMethods
+		q = q.Set("http_methods = ?", input.HTTPMethods)
+	}
+	if len(input.PIITypes) > 0 {
+		rule.PIITypes = input.PIITypes
+		q = q.Set("pii_types = ?", input.PIITypes)
+	}
+	if input.MaskConfig != nil {
+		rule.MaskConfig = input.MaskConfig
+		q = q.Set("mask_config = ?", input.MaskConfig)
+	}
 
 	if _, err := q.Exec(ctx); err != nil {
 		return nil, err
@@ -248,7 +272,14 @@ func mergeStrings(a, b []string) []string {
 
 // ListEvents returns paginated gateway interception events for a tenant.
 func (s *GatewayService) ListEvents(ctx context.Context, tenantID string, filter *models.GatewayEventFilter) ([]*models.GatewayEvent, int64, error) {
-	return s.ch.QueryGatewayEvents(ctx, tenantID, filter)
+	events, total, err := s.ch.QueryGatewayEvents(ctx, tenantID, filter)
+	if err != nil {
+		s.log.Error("QueryGatewayEvents failed",
+			zap.String("tenant_id", tenantID),
+			zap.Error(err),
+		)
+	}
+	return events, total, err
 }
 
 // GetStats returns aggregate gateway statistics for a tenant over the last N hours.

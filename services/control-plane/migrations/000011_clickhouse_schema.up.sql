@@ -6,7 +6,7 @@
 -- gateway_events: every proxied request/response inspected by the gateway
 -- -----------------------------------------------------------------------
 
-CREATE TABLE IF NOT EXISTS gateway_events (
+CREATE TABLE IF NOT EXISTS datasentinel.gateway_events (
     id                    UUID,
     tenant_id             UUID,
     gateway_rule_id       UUID,
@@ -33,7 +33,7 @@ SETTINGS index_granularity = 8192;
 -- audit_logs: immutable user-action audit trail (7-year retention per DPDP)
 -- -----------------------------------------------------------------------
 
-CREATE TABLE IF NOT EXISTS audit_logs (
+CREATE TABLE IF NOT EXISTS datasentinel.audit_logs (
     id            UUID,
     tenant_id     UUID,
     user_id       UUID,
