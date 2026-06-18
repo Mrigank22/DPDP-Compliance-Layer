@@ -30,8 +30,12 @@ func NewReportService(pg *bun.DB, ch *db.ClickHouseClient, log *zap.Logger, work
 
 // List returns paginated reports for a tenant.
 func (s *ReportService) List(ctx context.Context, tenantID string, page, pageSize int) ([]*models.Report, int64, error) {
-	if page < 1 { page = 1 }
-	if pageSize < 1 || pageSize > 100 { pageSize = 20 }
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
 	if err := db.SetTenantContext(ctx, s.pg, tenantID); err != nil {
 		return nil, 0, err
 	}
@@ -40,7 +44,7 @@ func (s *ReportService) List(ctx context.Context, tenantID string, page, pageSiz
 		Where("r.tenant_id = ?", tenantID).
 		OrderExpr("r.created_at DESC").
 		Limit(pageSize).Offset((page-1)*pageSize).
-		ScanAndCount(ctx)
+		ScanAndCount(ctx, &reports)
 	return reports, int64(total), err
 }
 

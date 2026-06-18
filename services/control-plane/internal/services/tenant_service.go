@@ -105,7 +105,7 @@ func (s *TenantService) ListAll(ctx context.Context, page, pageSize int) ([]*mod
 	total, err := s.pg.NewSelect().Model(&tenants).
 		OrderExpr("created_at DESC").
 		Limit(pageSize).Offset(offset).
-		ScanAndCount(ctx)
+		ScanAndCount(ctx, &tenants)
 	return tenants, int64(total), err
 }
 

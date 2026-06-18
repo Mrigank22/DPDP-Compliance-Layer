@@ -65,8 +65,8 @@ func (s *AssetService) List(ctx context.Context, tenantID string, filter *models
 
 	var assets []*models.Asset
 	total, err := q.OrderExpr("a.created_at DESC").
-		Limit(filter.PageSize).Offset((filter.Page - 1) * filter.PageSize).
-		ScanAndCount(ctx)
+		Limit(filter.PageSize).Offset((filter.Page-1)*filter.PageSize).
+		ScanAndCount(ctx, &assets)
 	// Bug 1: treat empty result as valid, not an error
 	if err != nil && err != sql.ErrNoRows {
 		return nil, 0, err
@@ -77,7 +77,7 @@ func (s *AssetService) List(ctx context.Context, tenantID string, filter *models
 		assets = []*models.Asset{}
 	}
 
-	return assets, int64(total), err
+	return assets, int64(total), nil
 }
 
 // Create inserts a new asset and validates connectivity to the data source.
@@ -238,8 +238,8 @@ func (s *AssetService) ListScans(ctx context.Context, assetID, tenantID string, 
 	total, err := s.pg.NewSelect().Model(&scans).
 		Where("s.asset_id = ? AND s.tenant_id = ?", assetID, tenantID).
 		OrderExpr("s.created_at DESC").
-		Limit(pageSize).Offset((page - 1) * pageSize).
-		ScanAndCount(ctx)
+		Limit(pageSize).Offset((page-1)*pageSize).
+		ScanAndCount(ctx, &scans)
 	return scans, int64(total), err
 }
 
@@ -260,8 +260,8 @@ func (s *AssetService) ListFindings(ctx context.Context, assetID, tenantID strin
 	total, err := s.pg.NewSelect().Model(&findings).
 		Where("f.asset_id = ? AND f.tenant_id = ?", assetID, tenantID).
 		OrderExpr("f.created_at DESC").
-		Limit(pageSize).Offset((page - 1) * pageSize).
-		ScanAndCount(ctx)
+		Limit(pageSize).Offset((page-1)*pageSize).
+		ScanAndCount(ctx, &findings)
 	return findings, int64(total), err
 }
 

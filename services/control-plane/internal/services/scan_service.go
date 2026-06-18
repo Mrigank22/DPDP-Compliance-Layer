@@ -49,8 +49,8 @@ func (s *ScanService) List(ctx context.Context, tenantID string, filter *models.
 	var scans []*models.Scan
 	total, err := q.Relation("Asset").
 		OrderExpr("s.created_at DESC").
-		Limit(filter.PageSize).Offset((filter.Page - 1) * filter.PageSize).
-		ScanAndCount(ctx)
+		Limit(filter.PageSize).Offset((filter.Page-1)*filter.PageSize).
+		ScanAndCount(ctx, &scans)
 	return scans, int64(total), err
 }
 

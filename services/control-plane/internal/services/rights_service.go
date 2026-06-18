@@ -57,8 +57,8 @@ func (s *RightsService) List(ctx context.Context, tenantID string, filter *model
 
 	var requests []*models.RightsRequest
 	total, err := q.OrderExpr("rr.due_date ASC").
-		Limit(filter.PageSize).Offset((filter.Page - 1) * filter.PageSize).
-		ScanAndCount(ctx)
+		Limit(filter.PageSize).Offset((filter.Page-1)*filter.PageSize).
+		ScanAndCount(ctx, &requests)
 
 	// Add these lines:
 	if err != nil && err != sql.ErrNoRows {

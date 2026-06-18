@@ -30,22 +30,32 @@ func NewAlertService(pg *bun.DB, ch *db.ClickHouseClient, log *zap.Logger, notif
 
 // List returns paginated alerts for a tenant.
 func (s *AlertService) List(ctx context.Context, tenantID string, filter *models.AlertListFilter) ([]*models.Alert, int64, error) {
-	if filter.Page < 1 { filter.Page = 1 }
-	if filter.PageSize < 1 || filter.PageSize > 100 { filter.PageSize = 20 }
+	if filter.Page < 1 {
+		filter.Page = 1
+	}
+	if filter.PageSize < 1 || filter.PageSize > 100 {
+		filter.PageSize = 20
+	}
 	if err := db.SetTenantContext(ctx, s.pg, tenantID); err != nil {
 		return nil, 0, err
 	}
 
 	q := s.pg.NewSelect().Model((*models.Alert)(nil)).
 		Where("al.tenant_id = ?", tenantID)
-	if filter.AlertType != "" { q = q.Where("al.alert_type = ?", filter.AlertType) }
-	if filter.Severity != "" { q = q.Where("al.severity = ?", filter.Severity) }
-	if filter.IsAcknowledged != nil { q = q.Where("al.is_acknowledged = ?", *filter.IsAcknowledged) }
+	if filter.AlertType != "" {
+		q = q.Where("al.alert_type = ?", filter.AlertType)
+	}
+	if filter.Severity != "" {
+		q = q.Where("al.severity = ?", filter.Severity)
+	}
+	if filter.IsAcknowledged != nil {
+		q = q.Where("al.is_acknowledged = ?", *filter.IsAcknowledged)
+	}
 
 	var alerts []*models.Alert
 	total, err := q.OrderExpr("al.created_at DESC").
 		Limit(filter.PageSize).Offset((filter.Page-1)*filter.PageSize).
-		ScanAndCount(ctx)
+		ScanAndCount(ctx, &alerts)
 	return alerts, int64(total), err
 }
 

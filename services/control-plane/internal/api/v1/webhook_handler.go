@@ -42,18 +42,18 @@ const (
 // Stored in PostgreSQL as a JSONB blob inside tenant.settings["webhooks"].
 // We use an in-memory representation here and persist to tenant settings.
 type WebhookConfig struct {
-	ID        string         `json:"id"`
-	TenantID  string         `json:"tenant_id"`
-	Name      string         `json:"name"`
-	Channel   WebhookChannel `json:"channel"`
-	URL       string         `json:"url,omitempty"`
-	Secret    string         `json:"secret,omitempty"`   // HMAC signing secret — never returned to client
-	Email     string         `json:"email,omitempty"`
+	ID        string            `json:"id"`
+	TenantID  string            `json:"tenant_id"`
+	Name      string            `json:"name"`
+	Channel   WebhookChannel    `json:"channel"`
+	URL       string            `json:"url,omitempty"`
+	Secret    string            `json:"secret,omitempty"` // HMAC signing secret — never returned to client
+	Email     string            `json:"email,omitempty"`
 	Headers   map[string]string `json:"headers,omitempty"`
-	Events    []string       `json:"events"`             // which alert types trigger this
-	IsActive  bool           `json:"is_active"`
-	CreatedAt time.Time      `json:"created_at"`
-	UpdatedAt time.Time      `json:"updated_at"`
+	Events    []string          `json:"events"` // which alert types trigger this
+	IsActive  bool              `json:"is_active"`
+	CreatedAt time.Time         `json:"created_at"`
+	UpdatedAt time.Time         `json:"updated_at"`
 }
 
 // WebhookConfigResponse is the safe API representation (secret omitted).
@@ -81,13 +81,13 @@ func (w *WebhookConfig) toResponse() *WebhookConfigResponse {
 
 // NotificationPrefs stores per-tenant alert notification preferences.
 type NotificationPrefs struct {
-	EmailRecipients  []string          `json:"email_recipients"`
-	SlackChannel     string            `json:"slack_channel"`
-	MinSeverity      string            `json:"min_severity"`        // only alert on this severity and above
-	QuietHoursStart  string            `json:"quiet_hours_start"`   // HH:MM 24h IST
-	QuietHoursEnd    string            `json:"quiet_hours_end"`
-	EscalationHours  int               `json:"escalation_hours"`    // hours before escalating unacked critical alerts
-	EscalationEmails []string          `json:"escalation_emails"`
+	EmailRecipients  []string `json:"email_recipients"`
+	SlackChannel     string   `json:"slack_channel"`
+	MinSeverity      string   `json:"min_severity"`      // only alert on this severity and above
+	QuietHoursStart  string   `json:"quiet_hours_start"` // HH:MM 24h IST
+	QuietHoursEnd    string   `json:"quiet_hours_end"`
+	EscalationHours  int      `json:"escalation_hours"` // hours before escalating unacked critical alerts
+	EscalationEmails []string `json:"escalation_emails"`
 }
 
 // WebhookHandler handles webhook config and notification preference endpoints.
@@ -220,12 +220,24 @@ func (h *WebhookHandler) UpdateWebhook(c *gin.Context) {
 		return
 	}
 
-	if input.Name != nil     { target.Name = *input.Name }
-	if input.URL != nil      { target.URL = *input.URL }
-	if input.Email != nil    { target.Email = *input.Email }
-	if input.Headers != nil  { target.Headers = input.Headers }
-	if len(input.Events) > 0 { target.Events = input.Events }
-	if input.IsActive != nil { target.IsActive = *input.IsActive }
+	if input.Name != nil {
+		target.Name = *input.Name
+	}
+	if input.URL != nil {
+		target.URL = *input.URL
+	}
+	if input.Email != nil {
+		target.Email = *input.Email
+	}
+	if input.Headers != nil {
+		target.Headers = input.Headers
+	}
+	if len(input.Events) > 0 {
+		target.Events = input.Events
+	}
+	if input.IsActive != nil {
+		target.IsActive = *input.IsActive
+	}
 	target.UpdatedAt = time.Now()
 
 	if err := h.upsertWebhook(c.Request.Context(), tenantID, target); err != nil {
@@ -538,7 +550,4 @@ func RegisterWebhookRoutes(rg *gin.RouterGroup, wh *WebhookHandler) {
 		webhooks.POST("/:id/test", wh.TestWebhook)
 	}
 
-	// Notification preferences hang off the alerts namespace
-	rg.GET("/alerts/config", wh.GetNotificationPrefs)
-	rg.PATCH("/alerts/config", wh.UpdateNotificationPrefs)
 }

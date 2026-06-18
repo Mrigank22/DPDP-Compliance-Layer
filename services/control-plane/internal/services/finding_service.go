@@ -29,8 +29,12 @@ func NewFindingService(pg *bun.DB, ch *db.ClickHouseClient, log *zap.Logger) *Fi
 
 // List returns paginated findings for a tenant, supporting rich filters.
 func (s *FindingService) List(ctx context.Context, tenantID string, filter *models.FindingListFilter) ([]*models.Finding, int64, error) {
-	if filter.Page < 1 { filter.Page = 1 }
-	if filter.PageSize < 1 || filter.PageSize > 100 { filter.PageSize = 20 }
+	if filter.Page < 1 {
+		filter.Page = 1
+	}
+	if filter.PageSize < 1 || filter.PageSize > 100 {
+		filter.PageSize = 20
+	}
 	if err := db.SetTenantContext(ctx, s.pg, tenantID); err != nil {
 		return nil, 0, err
 	}
@@ -38,16 +42,26 @@ func (s *FindingService) List(ctx context.Context, tenantID string, filter *mode
 	q := s.pg.NewSelect().Model((*models.Finding)(nil)).
 		Where("f.tenant_id = ?", tenantID)
 
-	if filter.AssetID != "" { q = q.Where("f.asset_id = ?", filter.AssetID) }
-	if filter.ScanID != "" { q = q.Where("f.scan_id = ?", filter.ScanID) }
-	if filter.FindingType != "" { q = q.Where("f.finding_type = ?", filter.FindingType) }
-	if filter.Severity != "" { q = q.Where("f.severity = ?", filter.Severity) }
-	if filter.IsResolved != nil { q = q.Where("f.is_resolved = ?", *filter.IsResolved) }
+	if filter.AssetID != "" {
+		q = q.Where("f.asset_id = ?", filter.AssetID)
+	}
+	if filter.ScanID != "" {
+		q = q.Where("f.scan_id = ?", filter.ScanID)
+	}
+	if filter.FindingType != "" {
+		q = q.Where("f.finding_type = ?", filter.FindingType)
+	}
+	if filter.Severity != "" {
+		q = q.Where("f.severity = ?", filter.Severity)
+	}
+	if filter.IsResolved != nil {
+		q = q.Where("f.is_resolved = ?", *filter.IsResolved)
+	}
 
 	var findings []*models.Finding
 	total, err := q.OrderExpr("f.created_at DESC").
 		Limit(filter.PageSize).Offset((filter.Page-1)*filter.PageSize).
-		ScanAndCount(ctx)
+		ScanAndCount(ctx, &findings)
 	return findings, int64(total), err
 }
 

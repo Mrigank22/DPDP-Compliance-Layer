@@ -110,58 +110,50 @@ func (ch *ClickHouseClient) QueryAuditLogs(ctx context.Context, filter *models.A
 	}
 	offset := (filter.Page - 1) * filter.PageSize
 
-	// Count query
-	countQuery := `SELECT count() FROM audit_logs WHERE tenant_id = ?`
+	// Build WHERE clause once, shared by both queries
+	where := "WHERE tenant_id = ?"
 	args := []any{tenantID}
 
 	if filter.Action != "" {
-		countQuery += " AND action = ?"
+		where += " AND action = ?"
 		args = append(args, filter.Action)
 	}
 	if filter.ResourceType != "" {
-		countQuery += " AND resource_type = ?"
+		where += " AND resource_type = ?"
 		args = append(args, filter.ResourceType)
 	}
+	if filter.ResourceID != "" {
+		where += " AND resource_id = ?"
+		args = append(args, filter.ResourceID)
+	}
+	if filter.UserID != "" {
+		where += " AND user_id = ?"
+		args = append(args, filter.UserID)
+	}
 	if filter.StartDate != nil {
-		countQuery += " AND timestamp >= ?"
+		where += " AND timestamp >= ?"
 		args = append(args, *filter.StartDate)
 	}
 	if filter.EndDate != nil {
-		countQuery += " AND timestamp <= ?"
+		where += " AND timestamp <= ?"
 		args = append(args, *filter.EndDate)
 	}
 
+	// Count
 	var total int64
-	if err := ch.conn.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
+	if err := ch.conn.QueryRowContext(ctx,
+		"SELECT count() FROM audit_logs "+where, args...,
+	).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("clickhouse count audit_logs: %w", err)
 	}
 
-	// Data query
-	dataQuery := countQuery + fmt.Sprintf(" ORDER BY timestamp DESC LIMIT %d OFFSET %d", filter.PageSize, offset)
-	dataQuery = `SELECT id, tenant_id, user_id, action, resource_type, resource_id,
-		ip_address, user_agent, changes, timestamp
-		FROM audit_logs WHERE tenant_id = ?`
-	dataArgs := []any{tenantID}
+	// Data — reuse same where + args
+	dataQuery := fmt.Sprintf(`SELECT id, tenant_id, user_id, action, resource_type,
+        resource_id, ip_address, user_agent, changes, timestamp
+        FROM audit_logs %s ORDER BY timestamp DESC LIMIT %d OFFSET %d`,
+		where, filter.PageSize, offset)
 
-	if filter.Action != "" {
-		dataQuery += " AND action = ?"
-		dataArgs = append(dataArgs, filter.Action)
-	}
-	if filter.ResourceType != "" {
-		dataQuery += " AND resource_type = ?"
-		dataArgs = append(dataArgs, filter.ResourceType)
-	}
-	if filter.StartDate != nil {
-		dataQuery += " AND timestamp >= ?"
-		dataArgs = append(dataArgs, *filter.StartDate)
-	}
-	if filter.EndDate != nil {
-		dataQuery += " AND timestamp <= ?"
-		dataArgs = append(dataArgs, *filter.EndDate)
-	}
-	dataQuery += fmt.Sprintf(" ORDER BY timestamp DESC LIMIT %d OFFSET %d", filter.PageSize, offset)
-
-	rows, err := ch.conn.QueryContext(ctx, dataQuery, dataArgs...)
+	rows, err := ch.conn.QueryContext(ctx, dataQuery, args...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("clickhouse query audit_logs: %w", err)
 	}
@@ -178,6 +170,9 @@ func (ch *ClickHouseClient) QueryAuditLogs(ctx context.Context, filter *models.A
 			return nil, 0, fmt.Errorf("clickhouse scan audit_log: %w", err)
 		}
 		logs = append(logs, entry)
+	}
+	if logs == nil {
+		logs = []*models.AuditLog{}
 	}
 	return logs, total, rows.Err()
 }

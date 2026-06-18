@@ -30,8 +30,12 @@ func NewPolicyService(pg *bun.DB, ch *db.ClickHouseClient, log *zap.Logger) *Pol
 
 // List returns paginated policies for a tenant.
 func (s *PolicyService) List(ctx context.Context, tenantID string, page, pageSize int) ([]*models.Policy, int64, error) {
-	if page < 1 { page = 1 }
-	if pageSize < 1 || pageSize > 100 { pageSize = 20 }
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
 	if err := db.SetTenantContext(ctx, s.pg, tenantID); err != nil {
 		return nil, 0, err
 	}
@@ -40,7 +44,7 @@ func (s *PolicyService) List(ctx context.Context, tenantID string, page, pageSiz
 		Where("p.tenant_id = ?", tenantID).
 		OrderExpr("p.priority ASC, p.created_at DESC").
 		Limit(pageSize).Offset((page-1)*pageSize).
-		ScanAndCount(ctx)
+		ScanAndCount(ctx, &policies)
 	return policies, int64(total), err
 }
 
@@ -128,12 +132,30 @@ func (s *PolicyService) Update(ctx context.Context, id, tenantID, userID string,
 	return policy, s.pg.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		q := tx.NewUpdate().Model(policy).Where("id = ? AND tenant_id = ?", id, tenantID)
 
-		if input.Name != nil { policy.Name = *input.Name; q = q.Set("name = ?", *input.Name) }
-		if input.Description != nil { policy.Description = *input.Description; q = q.Set("description = ?", *input.Description) }
-		if input.Status != nil { policy.Status = *input.Status; q = q.Set("status = ?", *input.Status) }
-		if input.EnforcementMode != nil { policy.EnforcementMode = *input.EnforcementMode; q = q.Set("enforcement_mode = ?", *input.EnforcementMode) }
-		if input.Priority != nil { policy.Priority = *input.Priority; q = q.Set("priority = ?", *input.Priority) }
-		if input.AppliesTo != nil { policy.AppliesTo = input.AppliesTo; q = q.Set("applies_to = ?", input.AppliesTo) }
+		if input.Name != nil {
+			policy.Name = *input.Name
+			q = q.Set("name = ?", *input.Name)
+		}
+		if input.Description != nil {
+			policy.Description = *input.Description
+			q = q.Set("description = ?", *input.Description)
+		}
+		if input.Status != nil {
+			policy.Status = *input.Status
+			q = q.Set("status = ?", *input.Status)
+		}
+		if input.EnforcementMode != nil {
+			policy.EnforcementMode = *input.EnforcementMode
+			q = q.Set("enforcement_mode = ?", *input.EnforcementMode)
+		}
+		if input.Priority != nil {
+			policy.Priority = *input.Priority
+			q = q.Set("priority = ?", *input.Priority)
+		}
+		if input.AppliesTo != nil {
+			policy.AppliesTo = input.AppliesTo
+			q = q.Set("applies_to = ?", input.AppliesTo)
+		}
 
 		rulesChanged := input.Rules != nil
 		if rulesChanged {
@@ -278,7 +300,7 @@ func (t *PolicyTemplate) toCreateInput() *models.CreatePolicyInput {
 		Name: t.Name, Description: t.Description,
 		PolicyType: t.PolicyType, Status: models.PolicyStatusDraft,
 		EnforcementMode: models.EnforcementAlert,
-		Rules: t.Rules, AppliesTo: t.AppliesTo,
+		Rules:           t.Rules, AppliesTo: t.AppliesTo,
 	}
 }
 
@@ -295,7 +317,7 @@ func builtInTemplates() []*PolicyTemplate {
 	return []*PolicyTemplate{
 		{
 			ID: "DPDP-001", Pack: "dpdp", PolicyType: models.PolicyTypeDataMasking,
-			Name: "Mask Indian PII in API Responses",
+			Name:        "Mask Indian PII in API Responses",
 			Description: "Masks Aadhaar, PAN, phone numbers, and email addresses in all API responses sent to unapproved destinations.",
 			Rules: map[string]any{
 				"operator": "AND",
@@ -304,14 +326,14 @@ func builtInTemplates() []*PolicyTemplate {
 					{"field": "direction", "operator": "eq", "value": "response"},
 				},
 				"action": map[string]any{
-					"type": "mask",
+					"type":   "mask",
 					"config": map[string]any{"strategy": "partial", "preserve_last": 4, "mask_char": "*"},
 				},
 			},
 		},
 		{
 			ID: "DPDP-002", Pack: "dpdp", PolicyType: models.PolicyTypeTransferControl,
-			Name: "Block Cross-Border Data Transfer",
+			Name:        "Block Cross-Border Data Transfer",
 			Description: "Blocks personal data transfers to endpoints outside approved countries per DPDP Act §16.",
 			Rules: map[string]any{
 				"operator": "AND",
@@ -324,7 +346,7 @@ func builtInTemplates() []*PolicyTemplate {
 		},
 		{
 			ID: "DPDP-003", Pack: "dpdp", PolicyType: models.PolicyTypeLLMGuard,
-			Name: "Alert on LLM Prompts Containing Personal Data",
+			Name:        "Alert on LLM Prompts Containing Personal Data",
 			Description: "Fires an alert whenever personal data is detected in prompts sent to external LLM APIs.",
 			Rules: map[string]any{
 				"operator": "AND",
@@ -338,7 +360,7 @@ func builtInTemplates() []*PolicyTemplate {
 		},
 		{
 			ID: "DPDP-004", Pack: "dpdp", PolicyType: models.PolicyTypeDataMasking,
-			Name: "Redact PII from Application Logs",
+			Name:        "Redact PII from Application Logs",
 			Description: "Redacts personal data fields from log-ingestion endpoints.",
 			Rules: map[string]any{
 				"predicates": []map[string]any{
@@ -350,7 +372,7 @@ func builtInTemplates() []*PolicyTemplate {
 		},
 		{
 			ID: "DPDP-006", Pack: "dpdp", PolicyType: models.PolicyTypeBreachResponse,
-			Name: "Alert on Breach Indicators",
+			Name:        "Alert on Breach Indicators",
 			Description: "Alerts when mass data export patterns (>1000 records) or unusual query volumes are detected.",
 			Rules: map[string]any{
 				"predicates": []map[string]any{
@@ -362,7 +384,7 @@ func builtInTemplates() []*PolicyTemplate {
 		},
 		{
 			ID: "RBI-001", Pack: "rbi", PolicyType: models.PolicyTypeTransferControl,
-			Name: "Block Payment Data Leaving India",
+			Name:        "Block Payment Data Leaving India",
 			Description: "Blocks all payment and financial data from leaving Indian infrastructure per RBI data localisation guidelines.",
 			Rules: map[string]any{
 				"predicates": []map[string]any{
@@ -374,21 +396,21 @@ func builtInTemplates() []*PolicyTemplate {
 		},
 		{
 			ID: "RBI-003", Pack: "rbi", PolicyType: models.PolicyTypeDataMasking,
-			Name: "Mask Card Numbers (PCI-DSS)",
+			Name:        "Mask Card Numbers (PCI-DSS)",
 			Description: "Masks credit/debit card numbers in all API traffic, preserving only the last 4 digits.",
 			Rules: map[string]any{
 				"predicates": []map[string]any{
 					{"field": "pii_type", "operator": "eq", "value": "CARD_NUMBER"},
 				},
 				"action": map[string]any{
-					"type": "mask",
+					"type":   "mask",
 					"config": map[string]any{"strategy": "partial", "preserve_last": 4, "mask_char": "*", "format": "####-####-####-XXXX"},
 				},
 			},
 		},
 		{
 			ID: "LLM-001", Pack: "llm", PolicyType: models.PolicyTypeLLMGuard,
-			Name: "Redact PII Before Sending to External LLMs",
+			Name:        "Redact PII Before Sending to External LLMs",
 			Description: "Scans and redacts all PII from prompts before forwarding to OpenAI, Anthropic, Google, and other LLM providers.",
 			Rules: map[string]any{
 				"predicates": []map[string]any{
@@ -401,7 +423,7 @@ func builtInTemplates() []*PolicyTemplate {
 		},
 		{
 			ID: "LLM-003", Pack: "llm", PolicyType: models.PolicyTypeLLMGuard,
-			Name: "Block LLM Calls Containing Sensitive Financial Data",
+			Name:        "Block LLM Calls Containing Sensitive Financial Data",
 			Description: "Blocks requests to LLM APIs that contain bank account numbers, card details, or UPI IDs.",
 			Rules: map[string]any{
 				"predicates": []map[string]any{
@@ -413,7 +435,7 @@ func builtInTemplates() []*PolicyTemplate {
 		},
 		{
 			ID: "SEC-001", Pack: "security", PolicyType: models.PolicyTypeBreachResponse,
-			Name: "Alert on Bulk Data Exports",
+			Name:        "Alert on Bulk Data Exports",
 			Description: "Fires a critical alert when any single API response contains more than 1000 records with PII.",
 			Rules: map[string]any{
 				"predicates": []map[string]any{
