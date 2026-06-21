@@ -15,6 +15,7 @@ import {
   Radar,
   FileCheck2,
   ScrollText,
+  BookText,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useUIStore } from "@/lib/store/ui.store";
@@ -144,6 +145,13 @@ function SidebarInner({ onNavigate }: { onNavigate?: () => void }) {
           name="Settings"
           icon={Settings}
           active={pathname.startsWith("/dashboard/settings")}
+          onClick={onNavigate}
+        />
+        <NavLink
+          href="/docs"
+          name="Documentation"
+          icon={BookText}
+          active={false}
           onClick={onNavigate}
         />
       </nav>

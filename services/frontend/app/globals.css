@@ -211,3 +211,77 @@
 
   .reveal-init { opacity: 0; transform: translateY(14px); }
 }
+
+/* ──────────────────────────────────────────────────────────────────────────
+ * Documentation (/docs) long-form prose
+ * Scoped so it never leaks into the console UI. Uses the same type ramp and
+ * tokens as the rest of the product for a seamless feel.
+ * ────────────────────────────────────────────────────────────────────────── */
+@layer components {
+  .doc-prose {
+    font-family: var(--font-sans), system-ui, sans-serif;
+    font-size: 15px;
+    line-height: 1.72;
+    color: color-mix(in srgb, var(--color-foreground) 82%, transparent);
+  }
+  .doc-prose p { margin: 0 0 14px; }
+  .doc-prose strong { color: var(--color-foreground); font-weight: 600; }
+  .doc-prose a {
+    color: var(--color-accent);
+    text-decoration: none;
+    border-bottom: 1px solid color-mix(in srgb, var(--color-accent) 35%, transparent);
+    transition: border-color 0.15s ease;
+  }
+  .doc-prose a:hover { border-bottom-color: var(--color-accent); }
+  .doc-prose ul, .doc-prose ol { margin: 0 0 14px; padding-left: 2px; }
+  .doc-prose li {
+    position: relative;
+    margin: 6px 0;
+    padding-left: 22px;
+    list-style: none;
+  }
+  .doc-prose ul > li::before {
+    content: "";
+    position: absolute;
+    left: 4px;
+    top: 10px;
+    width: 6px;
+    height: 6px;
+    border-radius: 2px;
+    background: var(--color-accent);
+    box-shadow: 0 0 8px color-mix(in srgb, var(--color-accent) 50%, transparent);
+  }
+  .doc-prose ol { counter-reset: doc-ol; }
+  .doc-prose ol > li { counter-increment: doc-ol; }
+  .doc-prose ol > li::before {
+    content: counter(doc-ol);
+    position: absolute;
+    left: 0;
+    top: 1px;
+    font-family: var(--font-mono), monospace;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--color-accent);
+  }
+  .doc-prose code:not(pre code) {
+    font-family: var(--font-mono), monospace;
+    font-size: 0.86em;
+    padding: 1.5px 6px;
+    border-radius: 6px;
+    background: var(--color-surface-2);
+    border: 1px solid var(--color-border);
+    color: color-mix(in srgb, var(--color-accent) 80%, var(--color-foreground));
+    white-space: nowrap;
+  }
+  .doc-prose blockquote {
+    margin: 16px 0;
+    padding: 2px 16px;
+    border-left: 2px solid var(--color-border-bright);
+    color: var(--color-muted);
+  }
+  .doc-prose hr { border: 0; height: 1px; background: var(--color-border); margin: 26px 0; }
+
+  /* Animated underline reveal for in-page anchor headings on hover */
+  .doc-anchor { opacity: 0; transition: opacity 0.15s ease; }
+  .group:hover .doc-anchor { opacity: 1; }
+}

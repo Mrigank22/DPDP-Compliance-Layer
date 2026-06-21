@@ -156,6 +156,13 @@ export default function LoginPage() {
       <p className="mt-6 text-center font-mono text-[11px] text-faint">
         Demo · admin@acme.com · Acme@123!
       </p>
+
+      <p className="mt-3 text-center text-[12px] text-muted">
+        New to DataSentinel?{" "}
+        <Link href="/docs" className="text-accent hover:underline">
+          Read the documentation
+        </Link>
+      </p>
     </AuthShell>
   );
 }
