@@ -111,6 +111,12 @@ function RuleForm({
               onChange={(e) => setRoute(e.target.value)}
               placeholder="api.openai.com/*"
             />
+            <p className="text-[11px] text-faint">
+              Matches the destination host and/or path. Use{" "}
+              <span className="font-mono">*</span> for everything,{" "}
+              <span className="font-mono">api.openai.com/*</span> for a host, or{" "}
+              <span className="font-mono">/v1/*</span> for a path. Not a regex.
+            </p>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">

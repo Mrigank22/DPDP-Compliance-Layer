@@ -207,8 +207,16 @@ func (pl *PolicyLoader) fetchAndCache(ctx context.Context, tenantID string) (*Ru
 	return rs, nil
 }
 
-// MatchRules returns all active rules that match the given HTTP method and path.
-func (rs *RuleSet) MatchRules(method, path, direction string) []*GatewayRule {
+// MatchRules returns all active rules that match the given HTTP method, request
+// path and upstream host. Each rule's route pattern is tested against the
+// request path ("/v1/chat"), the destination host ("api.openai.com") and the
+// combined host+path ("api.openai.com/v1/chat"), so a pattern can target either
+// the API path or the destination service.
+func (rs *RuleSet) MatchRules(method, path, host, direction string) []*GatewayRule {
+	hostPath := path
+	if host != "" {
+		hostPath = host + path
+	}
 	var matched []*GatewayRule
 	for _, rule := range rs.Rules {
 		if !rule.IsActive {
@@ -220,7 +228,8 @@ func (rs *RuleSet) MatchRules(method, path, direction string) []*GatewayRule {
 		if !matchesMethod(rule.HTTPMethods, method) {
 			continue
 		}
-		if matchesRoute(rule.RoutePattern, path) {
+		if matchesRoute(rule.RoutePattern, path) ||
+			(host != "" && (matchesRoute(rule.RoutePattern, host) || matchesRoute(rule.RoutePattern, hostPath))) {
 			matched = append(matched, rule)
 		}
 	}

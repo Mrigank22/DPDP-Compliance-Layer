@@ -67,15 +67,107 @@ export default function Gateway() {
       <Table
         head={["Action", "Effect"]}
         rows={[
-          ["mask", "Replace characters while keeping format, e.g. XXXX-XXXX-1234."],
-          ["redact", "Remove the field from the payload entirely."],
-          ["block", "Reject the request with HTTP 403 and log the violation."],
+          ["mask", "Replace characters while keeping length, e.g. ABCDE****F. Controlled by the mask settings below."],
+          ["redact", "Replace the value with a fixed label such as [REDACTED]."],
+          ["block", "Reject the request with HTTP 403 and log the violation — it never reaches the destination."],
           ["tokenize", "Swap the value for a reversible, format-preserving token from the per-tenant vault."],
-          ["encrypt", "AES-256-GCM encrypt the field with the tenant key."],
-          ["hash", "One-way SHA-256 pseudonymisation."],
-          ["alert", "Allow the traffic but raise an alert."],
+          ["alert", "Forward the traffic unchanged but raise a high-severity alert."],
+          ["allow", "Explicitly forward unchanged — an allow-list exception."],
         ]}
       />
+      <p className="text-[13px] text-faint">
+        These six actions are selectable when you create a rule. The engine also
+        supports <code>encrypt</code> (AES-256-GCM) and <code>hash</code> (SHA-256)
+        transforms used by some built-in policy packs.
+      </p>
+
+      <H2 id="configure-rule">Configure a rule, field by field</H2>
+      <p>
+        When you click <strong>New gateway rule</strong>, every field maps directly
+        to how the proxy matches and transforms traffic. Here is exactly what each
+        one does.
+      </p>
+
+      <H3 id="field-name">Name</H3>
+      <p>
+        A human label shown in the live feed, alerts and evidence logs (for example{" "}
+        <em>“Mask PII to external LLMs”</em>). It has no effect on matching.
+      </p>
+
+      <H3 id="field-route">Route pattern</H3>
+      <p>
+        Decides which traffic the rule applies to. It is{" "}
+        <strong>not a regular expression</strong>. The pattern is tested against
+        three forms of the destination, so you can scope by service or by path: the
+        destination <strong>host</strong> (<code>api.openai.com</code>), the{" "}
+        <strong>host + path</strong> (<code>api.openai.com/v1/chat/completions</code>),
+        and the request <strong>path</strong> alone (<code>/v1/chat/completions</code>).
+        The destination itself is set by the <code>X-Upstream-URL</code> header.
+        Supported syntax:
+      </p>
+      <Table
+        head={["Pattern", "Matches"]}
+        rows={[
+          [<code key="a">*</code>, "Everything — every destination and path."],
+          [<code key="e">api.openai.com/*</code>, "All calls to that host (host + any path)."],
+          [<code key="f">api.openai.com</code>, "That host exactly."],
+          [<code key="c">/v1/*</code>, "Any request path beginning with /v1/ (prefix match), regardless of host."],
+          [<code key="b">/v1/chat/completions</code>, "Exactly that path."],
+          [<code key="d">/users/:id/profile</code>, ":id matches any single segment (e.g. /users/42/profile); segment counts must be equal."],
+        ]}
+      />
+      <Callout variant="tip" title="Scope by destination or by path">
+        Use a host pattern like <code>api.openai.com/*</code> to cover all traffic to
+        a service, or a path pattern like <code>/v1/*</code> to match by API path
+        across destinations. Use <code>*</code> to apply a rule to everything.
+      </Callout>
+
+      <H3 id="field-direction">Direction</H3>
+      <p>The phase of the exchange the rule inspects and transforms.</p>
+      <Table
+        head={["Direction", "Inspects", "Typical use"]}
+        rows={[
+          ["request", "The body you send upstream (e.g. an LLM prompt).", "Stop personal data leaving in prompts or API calls."],
+          ["response", "The body returned to you.", "Redact personal data the upstream sends back."],
+          ["both", "Request and response.", "Full coverage — the default."],
+        ]}
+      />
+
+      <H3 id="field-methods">HTTP methods</H3>
+      <p>
+        Comma-separated list of methods the rule applies to. Use{" "}
+        <code>*</code> for all methods, or restrict to specific ones such as{" "}
+        <code>POST, PUT</code>. Methods are matched exactly (uppercase).
+      </p>
+
+      <H3 id="field-pii">PII types to target</H3>
+      <p>
+        Select which categories of personal data the rule acts on. <strong>Leave
+        the selection empty to target every supported type</strong>; pick a subset
+        to act only on those and ignore the rest. Supported types include Aadhaar,
+        PAN, Phone, Email, Name, Address, Bank A/C, UPI, Passport, Voter ID, GSTIN,
+        Driving License, Credit Card, IFSC and CIN.
+      </p>
+
+      <H3 id="field-mask">Mask settings</H3>
+      <p>
+        When the action is <code>mask</code>, these parameters (stored as the
+        rule&apos;s mask config) control the output:
+      </p>
+      <Table
+        head={["Setting", "Default", "Meaning"]}
+        rows={[
+          [<code key="s">strategy</code>, "partial", "partial (keep some characters), full (mask everything), redact (replace with a label) or tokenize."],
+          [<code key="mc">mask_char</code>, "*", "The character used to mask."],
+          [<code key="pf">preserve_first</code>, "0", "Number of characters kept at the start."],
+          [<code key="pl">preserve_last</code>, "4", "Number of characters kept at the end (e.g. show the last 4 of a card)."],
+          [<code key="rl">redact_label</code>, "[REDACTED]", "The label used when the strategy is redact."],
+        ]}
+      />
+      <p className="text-[13px] text-faint">
+        With <code>partial</code>, if <code>preserve_first + preserve_last</code> is
+        as long as the value, the whole value is masked.
+      </p>
 
       <H2 id="rules">Manage gateway rules</H2>
       <p>

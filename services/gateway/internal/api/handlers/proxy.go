@@ -133,7 +133,7 @@ func (h *ProxyHandler) Handle(c *gin.Context) {
 	}
 
 	// Find rules that match this request
-	matchedRules := rules.MatchRules(c.Request.Method, c.Request.URL.Path, "request")
+	matchedRules := rules.MatchRules(c.Request.Method, c.Request.URL.Path, parsedUpstream.Host, "request")
 
 	var (
 		requestAction     = "allow"
@@ -253,7 +253,7 @@ func (h *ProxyHandler) Handle(c *gin.Context) {
 		return
 	}
 
-	responseRules := rules.MatchRules(c.Request.Method, c.Request.URL.Path, "response")
+	responseRules := rules.MatchRules(c.Request.Method, c.Request.URL.Path, parsedUpstream.Host, "response")
 	var (
 		responseAction    = "allow"
 		responsePIITypes  []string

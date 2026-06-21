@@ -142,7 +142,7 @@ func (h *LLMHandler) Handle(c *gin.Context) {
 		h.proxy.forwardDirect(c, parsedUpstream, requestID)
 		return
 	}
-	matchedRules := rules.MatchRules(c.Request.Method, c.Request.URL.Path, "request")
+	matchedRules := rules.MatchRules(c.Request.Method, c.Request.URL.Path, parsedUpstream.Host, "request")
 
 	// ── Extract prompt text from provider envelope ───────────────────────────
 	prompts := extractPrompts(rawBody, provider)
@@ -246,7 +246,7 @@ func (h *LLMHandler) Handle(c *gin.Context) {
 	generatedText := extractGeneratedText(responseBody, provider)
 	usage := extractTokenUsage(responseBody, provider)
 
-	responseRules := rules.MatchRules(c.Request.Method, c.Request.URL.Path, "response")
+	responseRules := rules.MatchRules(c.Request.Method, c.Request.URL.Path, parsedUpstream.Host, "response")
 	var (
 		responsePIITypes []string
 		responseFields   []string
