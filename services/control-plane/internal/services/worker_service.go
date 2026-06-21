@@ -115,40 +115,57 @@ func (s *WorkerService) TestAssetConnection(ctx context.Context, assetID, tenant
 // publish serialises a task and pushes it to the named Celery queue in Redis.
 // Celery uses a LPUSH to `celery` key with a Kombu-formatted message.
 func (s *WorkerService) publish(ctx context.Context, queue string, task *celeryTask) error {
-	// Step 1 — marshal the task body to JSON bytes first
-	bodyBytes, err := json.Marshal(task)
+	// Marshal the task body to a JSON string
+	bodyBytes, err := json.Marshal([]any{
+		[]any{},          // args (positional) — always empty, we use kwargs
+		task.Kwargs,      // kwargs
+		map[string]any{}, // embed (chord/callbacks — empty)
+	})
 	if err != nil {
 		return fmt.Errorf("marshal task body: %w", err)
 	}
 
-	// Step 2 — base64-encode the body (Kombu protocol v2 expects this)
 	bodyB64 := base64.StdEncoding.EncodeToString(bodyBytes)
 
-	// Step 3 — wrap in the Kombu envelope
-	payload, err := json.Marshal(map[string]any{
+	envelope, err := json.Marshal(map[string]any{
 		"body":             bodyB64,
 		"content-type":     "application/json",
 		"content-encoding": "utf-8",
 		"headers": map[string]any{
-			"task":    task.Task,
-			"id":      task.ID,
-			"retries": task.Retries,
+			"lang":       "py",
+			"task":       task.Task,
+			"id":         task.ID,
+			"retries":    task.Retries,
+			"root_id":    task.ID,
+			"parent_id":  nil,
+			"group":      nil,
+			"meth":       "",
+			"shadow":     nil,
+			"eta":        nil,
+			"expires":    nil,
+			"timelimit":  []any{nil, nil},
+			"argsrepr":   "()",
+			"kwargsrepr": fmt.Sprintf("%v", task.Kwargs),
+			"origin":     "go@datasentinel",
 		},
 		"properties": map[string]any{
-			"reply_to":      "",
-			"delivery_mode": 2,
-			"delivery_tag":  uuid.New().String(),
+			"correlation_id": task.ID,
+			"reply_to":       "",
+			"delivery_mode":  2,
+			"delivery_tag":   uuid.New().String(),
 			"delivery_info": map[string]any{
 				"exchange":    "",
 				"routing_key": queue,
 			},
+			"priority":      0,
+			"body_encoding": "base64",
 		},
 	})
 	if err != nil {
 		return fmt.Errorf("marshal task envelope: %w", err)
 	}
 
-	if err := s.redis.LPush(ctx, queue, payload).Err(); err != nil {
+	if err := s.redis.LPush(ctx, queue, envelope).Err(); err != nil {
 		s.log.Error("redis lpush task failed",
 			zap.String("queue", queue),
 			zap.String("task", task.Task),

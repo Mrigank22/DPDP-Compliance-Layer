@@ -61,9 +61,9 @@ func NewClickHouse(cfg *config.Config, log *zap.Logger) (*ClickHouseClient, erro
 
 // WriteAuditLog inserts a single audit log record asynchronously.
 func (ch *ClickHouseClient) WriteAuditLog(ctx context.Context, entry *models.AuditLog) error {
-	query := `INSERT INTO audit_logs
-		(id, tenant_id, user_id, action, resource_type, resource_id, ip_address, user_agent, changes, timestamp)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	query := `INSERT INTO datasentinel.audit_logs
+        (id, tenant_id, user_id, action, resource_type, resource_id, ip_address, user_agent, changes, timestamp)
+        VALUES (toUUID(?), toUUID(?), toUUID(?), ?, ?, toUUID(?), ?, ?, ?, ?)`
 
 	_, err := ch.conn.ExecContext(ctx, query,
 		entry.ID, entry.TenantID, entry.UserID, entry.Action,

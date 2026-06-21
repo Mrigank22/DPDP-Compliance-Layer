@@ -276,7 +276,7 @@ class ConsentRecord(Base):
     notice_version       = Column(Text, nullable=True)
     ip_address           = Column(Text, nullable=True)
     consent_mechanism    = Column(Text, nullable=False, default="form")
-    meta                 = Column(JSONB, nullable=False, default=dict)
+    meta                 = Column("metadata",JSONB, nullable=False, default=dict)
     created_at           = Column(DateTime(timezone=True), nullable=False, default=_now)
 
 
