@@ -24,6 +24,13 @@ import (
 )
 
 func main() {
+	// ── CLI subcommands ──────────────────────────────────────────────────────
+	// `control-plane create-admin` bootstraps a platform super-admin out-of-band
+	// (requires shell + DB access; there is no public path to create one).
+	if len(os.Args) > 1 && os.Args[1] == "create-admin" {
+		os.Exit(runCreateAdmin(os.Args[2:]))
+	}
+
 	// ── Config ───────────────────────────────────────────────────────────────
 	cfg, err := config.Load()
 	must(err, "load config")

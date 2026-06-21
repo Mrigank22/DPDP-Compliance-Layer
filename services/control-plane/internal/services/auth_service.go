@@ -91,6 +91,9 @@ func (s *AuthService) loadKeys() error {
 // PublicKey returns the RSA public key for JWT verification (used by middleware).
 func (s *AuthService) PublicKey() *rsa.PublicKey { return s.pubKey }
 
+// PrivateKey returns the RSA private key, used to sign platform-admin tokens.
+func (s *AuthService) PrivateKey() *rsa.PrivateKey { return s.privKey }
+
 // ---- Registration -----------------------------------------------------------
 
 // Register creates a new tenant + owner user in a single transaction.
@@ -166,6 +169,10 @@ func (s *AuthService) Login(ctx context.Context, input *models.LoginInput, ip st
 
 	if !user.IsActive {
 		return nil, &AppError{Code: models.ErrCodeUnauthorized, Message: "account is disabled"}
+	}
+
+	if user.Tenant != nil && !user.Tenant.IsActive {
+		return nil, &AppError{Code: models.ErrCodeUnauthorized, Message: "this workspace has been suspended — contact your DataSentinel representative"}
 	}
 
 	if user.IsLocked() {

@@ -3,6 +3,7 @@
 package v1
 
 import (
+	"context"
 	"net/http"
 	"strings"
 
@@ -37,6 +38,7 @@ type Handlers struct {
 	Consent   *ConsentHandler
 	Webhook   *WebhookHandler
 	Internal  *InternalHandler
+	PlatformAdmin *PlatformAdminHandler
 }
 
 // NewHandlers wires all service dependencies into handler instances.
@@ -69,6 +71,13 @@ func NewHandlers(
 	webhookHandler := NewWebhookHandler(pg, log)
 	alertHandler := NewAlertHandler(alertSvc)
 
+	// Platform super-admin (vendor-level identity, signs tokens with the same
+	// RS256 key as tenant auth but with a distinct "platform_admin" scope).
+	platformAdminSvc := services.NewPlatformAdminService(pg, cfg, log, authSvc.PrivateKey(), authSvc.PublicKey())
+	if err := platformAdminSvc.EnsureSchema(context.Background()); err != nil {
+		return nil, err
+	}
+
 	return &Handlers{
 		Auth:      NewAuthHandler(authSvc),
 		Asset:     NewAssetHandler(assetSvc),
@@ -87,6 +96,7 @@ func NewHandlers(
 		Consent:   NewConsentHandler(pg, log),
 		Webhook:   webhookHandler,
 		Internal:  NewInternalHandler(alertSvc, gatewaySvc, webhookHandler, log),
+		PlatformAdmin: NewPlatformAdminHandler(platformAdminSvc),
 	}, nil
 }
 
@@ -116,6 +126,32 @@ func RegisterRoutes(r *gin.Engine, h *Handlers, authSvc *services.AuthService, p
 		auth.POST("/forgot-password", h.Auth.ForgotPassword)
 		auth.POST("/reset-password", h.Auth.ResetPassword)
 		auth.POST("/accept-invite", h.Auth.AcceptInvite)
+	}
+
+	// ── Platform super-admin (vendor-level, separate identity space) ─────────
+	{
+		adminGroup := v1.Group("/admin")
+		// Public login — rate-limited; brute-force lockout enforced in the service.
+		adminGroup.POST("/auth/login", middleware.RateLimit(rdb, cfg.AuthRateLimitRPM), h.PlatformAdmin.Login)
+
+		// Everything else requires a valid platform-admin session.
+		sec := adminGroup.Group("")
+		sec.Use(middleware.RequirePlatformAdmin(h.PlatformAdmin.Service(), log))
+		{
+			sec.GET("/me", h.PlatformAdmin.Me)
+			sec.POST("/mfa/begin", h.PlatformAdmin.BeginMFA)
+			sec.POST("/mfa/verify", h.PlatformAdmin.VerifyMFA)
+			sec.GET("/stats", h.PlatformAdmin.Stats)
+			sec.GET("/tenants", h.PlatformAdmin.ListTenants)
+			sec.POST("/tenants/:id/suspend", h.PlatformAdmin.SuspendTenant)
+			sec.POST("/tenants/:id/activate", h.PlatformAdmin.ActivateTenant)
+			sec.DELETE("/tenants/:id", h.PlatformAdmin.DeleteTenant)
+			sec.GET("/admins", h.PlatformAdmin.ListAdmins)
+			sec.POST("/admins", h.PlatformAdmin.CreateAdmin)
+			sec.POST("/admins/:id/disable", h.PlatformAdmin.DisableAdmin)
+			sec.POST("/admins/:id/enable", h.PlatformAdmin.EnableAdmin)
+			sec.GET("/audit", h.PlatformAdmin.ListAudit)
+		}
 	}
 
 	// ── Authenticated routes ─────────────────────────────────────────────────

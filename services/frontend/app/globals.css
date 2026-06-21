@@ -285,3 +285,24 @@
   .doc-anchor { opacity: 0; transition: opacity 0.15s ease; }
   .group:hover .doc-anchor { opacity: 1; }
 }
+
+/* ──────────────────────────────────────────────────────────────────────────
+ * Platform super-admin console (/admin)
+ * Same obsidian theme and fonts as the product, but the brand accent is
+ * re-mapped from signal-mint to a distinct VIOLET so operators always know
+ * they are in the elevated-privilege console. Because every component reads
+ * var(--color-accent), overriding it on this scope re-skins the whole subtree
+ * with zero component changes.
+ * ────────────────────────────────────────────────────────────────────────── */
+.admin-theme {
+  --color-accent: #8b7dff;        /* violet — elevated privilege */
+  --color-accent-dim: #6d5ef0;
+  --color-accent-2: #b9a8ff;
+  --color-success: #00e5a0;       /* keep semantic green for "active/ok" */
+}
+
+@keyframes adminScan {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(100%); }
+}
+
