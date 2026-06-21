@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/uptrace/bun"
@@ -117,6 +118,9 @@ func (s *PolicyService) Create(ctx context.Context, tenantID, userID string, inp
 		if _, err := tx.NewInsert().Model(ver).Exec(ctx); err != nil {
 			return fmt.Errorf("insert policy version: %w", err)
 		}
+		if err := s.upsertGatewayRuleForPolicy(ctx, tx, policy); err != nil {
+			return fmt.Errorf("sync gateway rule: %w", err)
+		}
 		go s.writeAudit(context.Background(), tenantID, userID, models.AuditActionPolicyCreated, "policy", policy.ID)
 		return nil
 	})
@@ -183,46 +187,60 @@ func (s *PolicyService) Update(ctx context.Context, id, tenantID, userID string,
 			}
 		}
 
+		// Project the policy onto its linked gateway rule so the change takes
+		// effect on live traffic.
+		if err := s.upsertGatewayRuleForPolicy(ctx, tx, policy); err != nil {
+			return fmt.Errorf("sync gateway rule: %w", err)
+		}
+
 		go s.writeAudit(context.Background(), tenantID, userID, models.AuditActionPolicyUpdated, "policy", id)
 		return nil
 	})
 }
 
-// Delete soft-deletes a policy by setting status=inactive.
+// Delete soft-deletes a policy by setting status=inactive and removes its
+// linked gateway rule, so the gateway reverts that traffic to normal.
 func (s *PolicyService) Delete(ctx context.Context, id, tenantID, userID string) error {
 	if err := db.SetTenantContext(ctx, s.pg, tenantID); err != nil {
 		return err
 	}
-	res, err := s.pg.NewUpdate().Model((*models.Policy)(nil)).
-		Set("status = 'inactive'").
-		Where("id = ? AND tenant_id = ?", id, tenantID).Exec(ctx)
-	if err != nil {
+	if err := s.pg.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		res, err := tx.NewUpdate().Model((*models.Policy)(nil)).
+			Set("status = ?", models.PolicyStatusInactive).
+			Where("id = ? AND tenant_id = ?", id, tenantID).Exec(ctx)
+		if err != nil {
+			return err
+		}
+		if rows, _ := res.RowsAffected(); rows == 0 {
+			return ErrNotFound("policy")
+		}
+		return s.deleteGatewayRuleForPolicy(ctx, tx, id, tenantID)
+	}); err != nil {
 		return err
-	}
-	rows, _ := res.RowsAffected()
-	if rows == 0 {
-		return ErrNotFound("policy")
 	}
 	go s.writeAudit(context.Background(), tenantID, userID, models.AuditActionPolicyDeleted, "policy", id)
 	return nil
 }
 
-// SetStatus activates or deactivates a policy.
+// SetStatus activates or deactivates a policy and re-syncs its gateway rule.
 func (s *PolicyService) SetStatus(ctx context.Context, id, tenantID, userID, status string) error {
-	if err := db.SetTenantContext(ctx, s.pg, tenantID); err != nil {
-		return err
-	}
-	res, err := s.pg.NewUpdate().Model((*models.Policy)(nil)).
-		Set("status = ?", status).
-		Where("id = ? AND tenant_id = ?", id, tenantID).Exec(ctx)
+	policy, err := s.GetByID(ctx, id, tenantID)
 	if err != nil {
 		return err
 	}
-	rows, _ := res.RowsAffected()
-	if rows == 0 {
-		return ErrNotFound("policy")
-	}
-	return nil
+	policy.Status = status
+	return s.pg.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		res, err := tx.NewUpdate().Model((*models.Policy)(nil)).
+			Set("status = ?", status).
+			Where("id = ? AND tenant_id = ?", id, tenantID).Exec(ctx)
+		if err != nil {
+			return err
+		}
+		if rows, _ := res.RowsAffected(); rows == 0 {
+			return ErrNotFound("policy")
+		}
+		return s.upsertGatewayRuleForPolicy(ctx, tx, policy)
+	})
 }
 
 // ListVersions returns all saved versions for a policy.
@@ -280,6 +298,203 @@ func (s *PolicyService) writeAudit(ctx context.Context, tenantID, userID, action
 	if err := s.ch.WriteAuditLog(ctx, entry); err != nil {
 		s.log.Warn("audit write failed", zap.Error(err))
 	}
+}
+
+// ---- Policy → Gateway rule projection ---------------------------------------
+//
+// The enforcement gateway polls GET /api/v1/gateway/rules and applies any active
+// gateway_rules. To make policies actually enforceable, every policy is projected
+// onto a single gateway_rules row (linked by policy_id). The projection honours
+// the policy's status and enforcement mode:
+//
+//   enforce  + active        → rule active, action = the policy's action
+//   alert    + active        → rule active, action = "alert" (observe only)
+//   audit_only OR not active → rule inactive (no live enforcement)
+//
+// Deleting a policy removes its gateway rule, so the gateway reverts to normal.
+
+// gatewayPIIAliases maps policy PII identifiers onto the gateway detector's names.
+var gatewayPIIAliases = map[string]string{
+	"CARD_NUMBER": "CREDIT_CARD",
+	"CREDITCARD":  "CREDIT_CARD",
+	"CARD":        "CREDIT_CARD",
+}
+
+// gatewayValidActions are the actions the enforcement gateway can apply.
+var gatewayValidActions = map[string]bool{
+	"mask": true, "redact": true, "block": true, "tokenize": true,
+	"alert": true, "allow": true, "encrypt": true, "hash": true,
+}
+
+// policyToGatewaySpec translates a policy's DSL into gateway-rule fields.
+func policyToGatewaySpec(p *models.Policy) (action string, piiTypes []string, direction string, maskConfig map[string]any) {
+	direction = "both"
+	maskConfig = map[string]any{}
+	actionType := models.GatewayActionAlert
+
+	if p.Rules != nil {
+		if a, ok := p.Rules["action"].(map[string]any); ok {
+			if t, ok := a["type"].(string); ok && t != "" {
+				actionType = strings.ToLower(strings.TrimSpace(t))
+			}
+			if cfg, ok := a["config"].(map[string]any); ok && cfg != nil {
+				maskConfig = cfg
+			}
+		}
+
+		var rawPII []string
+		preds := extractPredicates(p.Rules["predicates"])
+		if len(preds) == 0 {
+			// The visual builder nests predicates under "conditions".
+			if cond, ok := p.Rules["conditions"].(map[string]any); ok {
+				preds = extractPredicates(cond["predicates"])
+			}
+		}
+		for _, pm := range preds {
+			field, _ := pm["field"].(string)
+			switch field {
+			case "pii_type":
+				rawPII = append(rawPII, toStrings(pm["value"])...)
+			case "direction":
+				if v, ok := pm["value"].(string); ok {
+					switch v {
+					case "request", "response", "both":
+						direction = v
+					}
+				}
+			}
+		}
+		piiTypes = normalizePIITypes(rawPII)
+	}
+
+	// Enforcement mode governs the effective action.
+	switch p.EnforcementMode {
+	case models.EnforcementEnforce:
+		if gatewayValidActions[actionType] {
+			action = actionType
+		} else {
+			action = models.GatewayActionAlert
+		}
+	default: // alert | audit_only → observe only
+		action = models.GatewayActionAlert
+	}
+	return action, piiTypes, direction, maskConfig
+}
+
+// policyRuleActive reports whether the projected gateway rule should be live.
+func policyRuleActive(p *models.Policy) bool {
+	return p.Status == models.PolicyStatusActive && p.EnforcementMode != models.EnforcementAuditOnly
+}
+
+// upsertGatewayRuleForPolicy creates or updates the gateway rule linked to a policy.
+func (s *PolicyService) upsertGatewayRuleForPolicy(ctx context.Context, idb bun.IDB, p *models.Policy) error {
+	action, piiTypes, direction, maskConfig := policyToGatewaySpec(p)
+	active := policyRuleActive(p)
+
+	existing := &models.GatewayRule{}
+	err := idb.NewSelect().Model(existing).
+		Where("policy_id = ? AND tenant_id = ?", p.ID, p.TenantID).
+		Limit(1).Scan(ctx)
+	if err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		policyID := p.ID
+		rule := &models.GatewayRule{
+			TenantID:     p.TenantID,
+			PolicyID:     &policyID,
+			Name:         p.Name,
+			RoutePattern: "*",
+			HTTPMethods:  []string{"*"},
+			Direction:    direction,
+			Action:       action,
+			PIITypes:     piiTypes,
+			MaskConfig:   maskConfig,
+			IsActive:     active,
+		}
+		_, insErr := idb.NewInsert().Model(rule).Exec(ctx)
+		return insErr
+	}
+
+	existing.Name = p.Name
+	existing.RoutePattern = "*"
+	existing.HTTPMethods = []string{"*"}
+	existing.Direction = direction
+	existing.Action = action
+	existing.PIITypes = piiTypes
+	existing.MaskConfig = maskConfig
+	existing.IsActive = active
+	existing.UpdatedAt = time.Now()
+	_, updErr := idb.NewUpdate().Model(existing).
+		Column("name", "route_pattern", "http_methods", "direction", "action", "pii_types", "mask_config", "is_active", "updated_at").
+		WherePK().Exec(ctx)
+	return updErr
+}
+
+// deleteGatewayRuleForPolicy removes the gateway rule linked to a policy (if any).
+func (s *PolicyService) deleteGatewayRuleForPolicy(ctx context.Context, idb bun.IDB, policyID, tenantID string) error {
+	_, err := idb.NewDelete().Model((*models.GatewayRule)(nil)).
+		Where("policy_id = ? AND tenant_id = ?", policyID, tenantID).Exec(ctx)
+	return err
+}
+
+// extractPredicates normalises the predicates field, which may arrive as
+// []any (from JSON / JSONB) or []map[string]any (from in-memory templates).
+func extractPredicates(raw any) []map[string]any {
+	switch v := raw.(type) {
+	case []map[string]any:
+		return v
+	case []any:
+		out := make([]map[string]any, 0, len(v))
+		for _, e := range v {
+			if m, ok := e.(map[string]any); ok {
+				out = append(out, m)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+// toStrings coerces a DSL value (string, []string or []any) into []string.
+func toStrings(v any) []string {
+	switch val := v.(type) {
+	case string:
+		return []string{val}
+	case []string:
+		return val
+	case []any:
+		out := make([]string, 0, len(val))
+		for _, item := range val {
+			if s, ok := item.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+// normalizePIITypes upper-cases, de-duplicates and alias-maps PII type names.
+func normalizePIITypes(in []string) []string {
+	seen := make(map[string]bool, len(in))
+	out := make([]string, 0, len(in))
+	for _, t := range in {
+		u := strings.ToUpper(strings.TrimSpace(t))
+		if u == "" {
+			continue
+		}
+		if alias, ok := gatewayPIIAliases[u]; ok {
+			u = alias
+		}
+		if !seen[u] {
+			seen[u] = true
+			out = append(out, u)
+		}
+	}
+	return out
 }
 
 // ---- Policy Templates -------------------------------------------------------

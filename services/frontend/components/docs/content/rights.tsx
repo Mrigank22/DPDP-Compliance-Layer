@@ -21,8 +21,8 @@ export default function Rights() {
         head={["Type", "What DataSentinel does"]}
         rows={[
           ["Access", "Searches every connected asset for the principal’s records and compiles a structured export."],
-          ["Correction", "Locates the records and flags the exact asset, table and location for correction."],
-          ["Erasure", "Identifies all locations of the data and queues erasure (final deletion stays human-approved for safety)."],
+          ["Correction", "Locates the records and flags the exact asset, table and location for your team to correct."],
+          ["Erasure", "Locates every place the principal’s data lives so your team can delete it in the source systems and record the outcome. DataSentinel does not delete data automatically."],
           ["Portability", "Extracts the principal’s data in a machine-readable format."],
           ["Nomination", "Records a nominee for the data principal."],
         ]}
@@ -64,10 +64,12 @@ export default function Rights() {
         calendar so nothing slips.
       </p>
 
-      <Callout variant="note" title="Erasure is deliberate">
-        For safety, DataSentinel identifies and queues erasure but leaves the final
-        deletion to a human approval step — so a single request can never trigger
-        irreversible mass deletion by accident.
+      <Callout variant="note" title="Erasure is assisted, not automated">
+        DataSentinel <strong>locates</strong> every copy of the principal’s data and
+        tracks the request and its deadline — but it never deletes data itself. A
+        team member carries out the deletion in the source systems and records the
+        outcome, so a request can never trigger irreversible mass deletion by
+        accident.
       </Callout>
     </>
   );

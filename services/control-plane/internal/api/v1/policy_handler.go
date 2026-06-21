@@ -155,7 +155,7 @@ func (h *PolicyHandler) Rollback(c *gin.Context) {
 // GetTemplates godoc
 // GET /api/v1/policies/templates
 func (h *PolicyHandler) GetTemplates(c *gin.Context) {
-	ok(c, h.policySvc.GetTemplates())
+	ok(c, gin.H{"templates": h.policySvc.GetTemplates()})
 }
 
 // ApplyTemplate godoc
