@@ -73,6 +73,8 @@ class Settings(BaseSettings):
     # ---- Scan Settings -------------------------------------------------------
     scan_batch_size: int = Field(default=500, description="Records per batch during classification")
     s3_max_objects_per_scan: int = Field(default=10000, description="Cap on S3 objects inspected per scan run")
+    gcs_max_objects_per_scan: int = Field(default=10000, description="Cap on GCS objects inspected per scan run")
+    azure_max_blobs_per_scan: int = Field(default=10000, description="Cap on Azure blobs inspected per scan run")
 
     class Config:
         env_file = ".env"

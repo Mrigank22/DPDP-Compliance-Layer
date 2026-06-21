@@ -256,6 +256,7 @@ func RegisterRoutes(r *gin.Engine, h *Handlers, authSvc *services.AuthService, p
 		reports.GET("", h.Report.List)
 		reports.POST("", middleware.RequireRole(models.RoleAnalyst), h.Report.Generate)
 		reports.GET("/:id", h.Report.Get)
+		reports.GET("/:id/download", h.Report.Download)
 		reports.DELETE("/:id", middleware.RequireRole(models.RoleAdmin), h.Report.Delete)
 	}
 

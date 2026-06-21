@@ -6,7 +6,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   FileBarChart,
   Plus,
-  Download,
+  Braces,
   Trash2,
   Loader2,
   FileText,
@@ -161,6 +161,40 @@ function ReportsContent() {
 
   const reports = reportsQ.data?.data ?? [];
 
+  // Open the branded, print-ready HTML report in a new tab (rendered from an
+  // authenticated blob so it works without S3 and carries no auth in the URL).
+  const openHtml = async (r: Report) => {
+    try {
+      const blob = await reportsAPI.download(r.id, "html");
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank", "noopener,noreferrer");
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (e) {
+      toast.error("Could not open report", getApiErrorMessage(e));
+    }
+  };
+
+  // Download the machine-readable JSON body.
+  const downloadJson = async (r: Report) => {
+    if (r.file_url && /^https?:\/\//i.test(r.file_url)) {
+      window.open(r.file_url, "_blank", "noopener,noreferrer");
+      return;
+    }
+    try {
+      const blob = await reportsAPI.download(r.id, "json");
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${r.title || "report"}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      toast.error("Could not download report", getApiErrorMessage(e));
+    }
+  };
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -228,12 +262,25 @@ function ReportsContent() {
                   <TD className="font-mono text-xs text-muted">{formatDateTime(r.created_at)}</TD>
                   <TD>
                     <div className="flex items-center justify-end gap-1">
-                      {r.status === "ready" && r.file_url && (
-                        <a href={r.file_url} target="_blank" rel="noopener noreferrer">
-                          <Button variant="ghost" size="icon" title="Download">
-                            <Download className="h-4 w-4" />
+                      {r.status === "ready" && (
+                        <>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title="Open report (HTML)"
+                            onClick={() => openHtml(r)}
+                          >
+                            <FileText className="h-4 w-4" />
                           </Button>
-                        </a>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title="Download JSON"
+                            onClick={() => downloadJson(r)}
+                          >
+                            <Braces className="h-4 w-4" />
+                          </Button>
+                        </>
                       )}
                       <Button
                         variant="ghost"

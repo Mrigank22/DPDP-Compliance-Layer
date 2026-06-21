@@ -60,16 +60,18 @@ const TYPE_ICON: Record<string, typeof Database> = {
   gcs_bucket: Cloud,
   azure_blob: HardDrive,
   postgresql: Database,
+  mysql: Database,
   api_endpoint: Globe,
   llm_endpoint: Brain,
 };
 
 const CONFIG_HINTS: Record<string, string> = {
-  s3_bucket: '{\n  "bucket": "my-bucket",\n  "arn": "arn:aws:iam::123:role/scan"\n}',
-  rds_instance: '{\n  "host": "db.xxx.rds.amazonaws.com",\n  "port": 5432,\n  "database": "app"\n}',
-  postgresql: '{\n  "host": "10.0.0.5",\n  "port": 5432,\n  "database": "app",\n  "user": "readonly"\n}',
-  gcs_bucket: '{\n  "bucket": "my-gcs-bucket"\n}',
-  azure_blob: '{\n  "container": "data",\n  "account": "storageacct"\n}',
+  s3_bucket: '{\n  "bucket_name": "my-bucket",\n  "prefix": "",\n  "role_arn": "arn:aws:iam::123:role/scan"\n}',
+  rds_instance: '{\n  "host": "db.xxx.rds.amazonaws.com",\n  "port": 5432,\n  "database": "app",\n  "username": "readonly",\n  "password": "••••",\n  "ssl_mode": "require"\n}',
+  postgresql: '{\n  "host": "10.0.0.5",\n  "port": 5432,\n  "database": "app",\n  "username": "readonly",\n  "password": "••••",\n  "ssl_mode": "require"\n}',
+  mysql: '{\n  "host": "db.example.com",\n  "port": 3306,\n  "database": "app",\n  "username": "readonly",\n  "password": "••••",\n  "ssl": true\n}',
+  gcs_bucket: '{\n  "bucket_name": "my-gcs-bucket",\n  "project": "my-project",\n  "prefix": ""\n}',
+  azure_blob: '{\n  "account": "storageacct",\n  "container": "data",\n  "connection_string": ""\n}',
   api_endpoint: '{\n  "url": "https://api.internal/v1"\n}',
   llm_endpoint: '{\n  "provider": "openai",\n  "url": "https://api.openai.com/v1"\n}',
 };

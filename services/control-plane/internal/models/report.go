@@ -38,6 +38,8 @@ type Report struct {
 	FileSizeBytes *int64         `bun:"file_size_bytes"                            json:"file_size_bytes"`
 	GeneratedBy   *string        `bun:"generated_by,type:uuid"                     json:"generated_by"`
 	Parameters    map[string]any `bun:"parameters,type:jsonb,default:{}"           json:"parameters"`
+	Content       *string        `bun:"content"                                    json:"-"`             // JSON report body; served on download, never in list/detail JSON
+	ContentHTML   *string        `bun:"content_html"                               json:"-"`             // branded HTML report body; served on download
 	CreatedAt     time.Time      `bun:"created_at,notnull,default:now()"           json:"created_at"`
 }
 

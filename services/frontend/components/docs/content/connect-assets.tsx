@@ -57,8 +57,23 @@ export default function ConnectAssets() {
             <Pill key="p" tone="accent">Available</Pill>,
           ],
           [
+            <span key="gcs"><strong>Google Cloud Storage</strong> <code>gcs_bucket</code></span>,
+            "Objects sampled for PII, plus public-access, uniform-access and versioning posture.",
+            <Pill key="p" tone="accent">Available</Pill>,
+          ],
+          [
+            <span key="ablob"><strong>Azure Blob Storage</strong> <code>azure_blob</code></span>,
+            "Blobs sampled for PII, plus anonymous public-access posture.",
+            <Pill key="p" tone="accent">Available</Pill>,
+          ],
+          [
             <span key="pg"><strong>PostgreSQL</strong> <code>postgresql</code></span>,
-            "Tables and columns sampled for PII, using column-name heuristics first.",
+            "Tables and columns sampled for PII, using column-name heuristics first. Works on AWS RDS/Aurora, GCP Cloud SQL and Azure Database for PostgreSQL.",
+            <Pill key="p" tone="accent">Available</Pill>,
+          ],
+          [
+            <span key="mysql"><strong>MySQL / MariaDB</strong> <code>mysql</code></span>,
+            "Tables and columns sampled for PII. Works on AWS RDS/Aurora, GCP Cloud SQL and Azure Database for MySQL.",
             <Pill key="p" tone="accent">Available</Pill>,
           ],
           [
@@ -66,13 +81,18 @@ export default function ConnectAssets() {
             "PostgreSQL-compatible RDS instances; data and transport-security posture.",
             <Pill key="p" tone="accent">Available</Pill>,
           ],
-          [
-            <span key="o"><strong>GCS / Azure Blob</strong></span>,
-            "Object-storage discovery.",
-            <Pill key="p" tone="muted">Roadmap</Pill>,
-          ],
         ]}
       />
+
+      <Callout variant="tip" title="One database connector, every cloud">
+        The <code>postgresql</code> and <code>mysql</code> connectors speak the
+        native database wire protocol, so the same connector works whether your
+        database runs on <strong>AWS</strong> (RDS / Aurora), <strong>Google
+        Cloud</strong> (Cloud SQL), <strong>Azure</strong> (Azure Database) or
+        self-hosted. Just pick the matching <strong>Provider</strong> and point
+        the host at your managed endpoint.
+      </Callout>
+
 
       <H2 id="connect-step-by-step">Connect an asset step by step</H2>
       <Steps>
@@ -192,6 +212,130 @@ GRANT SELECT ON ALL TABLES IN SCHEMA public TO ds_readonly;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
   GRANT SELECT ON TABLES TO ds_readonly;`}
       />
+      <p>
+        The same configuration works for managed PostgreSQL on any cloud — set{" "}
+        <code>provider</code> to <code>aws</code> (RDS / Aurora),{" "}
+        <code>gcp</code> (Cloud SQL) or <code>azure</code> (Azure Database for
+        PostgreSQL) and point <code>host</code> at the managed endpoint.
+      </p>
+
+      <H3 id="config-mysql">MySQL / MariaDB</H3>
+      <p>
+        One connector covers MySQL and MariaDB everywhere they run — AWS RDS /
+        Aurora MySQL, GCP Cloud SQL for MySQL and Azure Database for MySQL — since
+        all speak the MySQL wire protocol.
+      </p>
+      <FieldList>
+        <Field name="host" type="string" required>
+          Hostname of the database server.
+        </Field>
+        <Field name="port" type="number">
+          Defaults to <code>3306</code>.
+        </Field>
+        <Field name="database" type="string" required>
+          The database (schema) to scan.
+        </Field>
+        <Field name="username" type="string" required>
+          A read-only user.
+        </Field>
+        <Field name="password" type="string" required>
+          Stored encrypted with your tenant key.
+        </Field>
+        <Field name="ssl" type="boolean">
+          Set <code>true</code> to require TLS. Optionally pin a CA with{" "}
+          <code>ssl_ca</code> (path to the CA bundle).
+        </Field>
+      </FieldList>
+      <CodeBlock
+        lang="json"
+        title="connection_config — mysql"
+        code={`{
+  "host": "app-db.xxxx.ap-south-1.rds.amazonaws.com",
+  "port": 3306,
+  "database": "app",
+  "username": "ds_readonly",
+  "password": "••••••••",
+  "ssl": true
+}`}
+      />
+      <CodeBlock
+        lang="sql"
+        title="Create a read-only user"
+        code={`CREATE USER 'ds_readonly'@'%' IDENTIFIED BY '••••••••' REQUIRE SSL;
+GRANT SELECT ON app.* TO 'ds_readonly'@'%';
+FLUSH PRIVILEGES;`}
+      />
+
+      <H3 id="config-gcs">Google Cloud Storage</H3>
+      <FieldList>
+        <Field name="bucket_name" type="string" required>
+          The GCS bucket to scan.
+        </Field>
+        <Field name="project" type="string">
+          GCP project id that owns the bucket.
+        </Field>
+        <Field name="prefix" type="string">
+          Restrict scanning to objects under this name prefix.
+        </Field>
+        <Field name="credentials_json" type="string">
+          Inline service-account JSON. If omitted, the worker uses{" "}
+          <code>GOOGLE_APPLICATION_CREDENTIALS</code> or workload-identity
+          (Application Default Credentials).
+        </Field>
+      </FieldList>
+      <CodeBlock
+        lang="json"
+        title="connection_config — gcs_bucket"
+        code={`{
+  "bucket_name": "acme-customer-data",
+  "project": "acme-prod",
+  "prefix": "exports/"
+}`}
+      />
+      <p>
+        Grant the service account the{" "}
+        <code>roles/storage.objectViewer</code> role on the bucket (and{" "}
+        <code>roles/storage.legacyBucketReader</code> for posture metadata).
+      </p>
+
+      <H3 id="config-azure">Azure Blob Storage</H3>
+      <FieldList>
+        <Field name="account" type="string" required>
+          Storage account name (omit if you provide a{" "}
+          <code>connection_string</code>).
+        </Field>
+        <Field name="container" type="string" required>
+          The blob container to scan.
+        </Field>
+        <Field name="connection_string" type="string">
+          Full account connection string. Easiest option for getting started.
+        </Field>
+        <Field name="account_key" type="string">
+          Shared-key credential (alternative to a connection string).
+        </Field>
+        <Field name="sas_token" type="string">
+          SAS token credential (alternative to a key). If none of these are
+          provided, the worker falls back to a managed identity.
+        </Field>
+        <Field name="prefix" type="string">
+          Restrict scanning to blobs under this name prefix.
+        </Field>
+      </FieldList>
+      <CodeBlock
+        lang="json"
+        title="connection_config — azure_blob"
+        code={`{
+  "account": "acmestorage",
+  "container": "customer-exports",
+  "connection_string": "DefaultEndpointsProtocol=https;AccountName=acmestorage;AccountKey=••••;EndpointSuffix=core.windows.net",
+  "prefix": "2024/"
+}`}
+      />
+      <p>
+        Grant the principal the{" "}
+        <strong>Storage Blob Data Reader</strong> role on the container, and keep
+        the container’s public access level set to <strong>Private</strong>.
+      </p>
 
       <H2 id="via-api">Connect via the API</H2>
       <p>

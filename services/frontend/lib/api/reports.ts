@@ -13,6 +13,9 @@ export const reportsAPI = {
 
   get: (id: string) => apiClient.get<Report>(`/reports/${id}`),
 
+  download: (id: string, format: "json" | "html" = "json") =>
+    apiClient.getBlob(`/reports/${id}/download?format=${format}`),
+
   generate: (data: GenerateReportInput) =>
     apiClient.post<Report>("/reports", data),
 

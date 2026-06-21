@@ -548,15 +548,46 @@ func appendUnique(slice []string, items ...string) []string {
 	return slice
 }
 
+// llmHostMarkers are substrings that identify a known LLM provider endpoint.
+// The gateway can already proxy ANY outbound API via X-Upstream-URL; matching
+// here only decides whether to dispatch through the LLM-aware handler so that
+// prompts/completions are inspected and redacted in the provider's wire format.
+var llmHostMarkers = []string{
+	// First-party model providers
+	"api.openai.com",                    // OpenAI
+	"api.anthropic.com",                 // Anthropic
+	"generativelanguage.googleapis.com", // Google Gemini (AI Studio)
+	"aiplatform.googleapis.com",         // Google Vertex AI
+	"api.cohere.com", "api.cohere.ai",   // Cohere
+	"api.mistral.ai",                    // Mistral
+	"api.perplexity.ai",                 // Perplexity
+	"api.x.ai",                          // xAI (Grok)
+	"api.deepseek.com",                  // DeepSeek
+	"api.ai21.com",                      // AI21
+	"api.voyageai.com",                  // Voyage
+	"integrate.api.nvidia.com",          // NVIDIA NIM
+	"api.sambanova.ai",                  // SambaNova
+	// Aggregators / inference platforms
+	"openrouter.ai",                     // OpenRouter
+	"api.groq.com",                      // Groq
+	"api.together.xyz", "api.together.ai", // Together AI
+	"api.fireworks.ai",                  // Fireworks AI
+	"api.deepinfra.com",                 // DeepInfra
+	"api.endpoints.anyscale.com",        // Anyscale
+	"api.replicate.com",                 // Replicate
+	"api-inference.huggingface.co",      // Hugging Face Inference API
+	"gateway.ai.cloudflare.com",         // Cloudflare AI Gateway
+	// Hyperscaler-hosted model endpoints
+	"openai.azure.com",                  // Azure OpenAI
+	"models.inference.ai.azure.com",     // Azure AI model inference
+	"inference.ai.azure.com",            // Azure AI Foundry
+	"bedrock-runtime.",                  // AWS Bedrock (bedrock-runtime.<region>.amazonaws.com)
+}
+
 func isLLMURL(u string) bool {
-	llmHosts := []string{
-		"api.openai.com", "api.anthropic.com", "generativelanguage.googleapis.com",
-		"api.cohere.com", "api.mistral.ai", "api.together.xyz",
-		"api.groq.com", "openrouter.ai",
-	}
 	lower := strings.ToLower(u)
-	for _, host := range llmHosts {
-		if strings.Contains(lower, host) {
+	for _, marker := range llmHostMarkers {
+		if strings.Contains(lower, marker) {
 			return true
 		}
 	}
@@ -593,20 +624,56 @@ func isBlockedDestination(parsed *url.URL) bool {
 func detectLLMProvider(u string) string {
 	lower := strings.ToLower(u)
 	switch {
+	case strings.Contains(lower, "openai.azure.com"):
+		return "azure_openai"
+	case strings.Contains(lower, "inference.ai.azure.com"):
+		return "azure_ai"
+	case strings.Contains(lower, "bedrock-runtime."):
+		return "aws_bedrock"
+	case strings.Contains(lower, "aiplatform.googleapis.com"):
+		return "google_vertex"
+	case strings.Contains(lower, "generativelanguage.googleapis.com"):
+		return "google"
 	case strings.Contains(lower, "openai.com"):
 		return "openai"
 	case strings.Contains(lower, "anthropic.com"):
 		return "anthropic"
-	case strings.Contains(lower, "googleapis.com"):
-		return "google"
-	case strings.Contains(lower, "cohere.com"):
+	case strings.Contains(lower, "cohere."):
 		return "cohere"
 	case strings.Contains(lower, "mistral.ai"):
 		return "mistral"
+	case strings.Contains(lower, "perplexity.ai"):
+		return "perplexity"
+	case strings.Contains(lower, "x.ai"):
+		return "xai"
+	case strings.Contains(lower, "deepseek.com"):
+		return "deepseek"
+	case strings.Contains(lower, "ai21.com"):
+		return "ai21"
+	case strings.Contains(lower, "voyageai.com"):
+		return "voyage"
+	case strings.Contains(lower, "nvidia.com"):
+		return "nvidia"
+	case strings.Contains(lower, "sambanova.ai"):
+		return "sambanova"
 	case strings.Contains(lower, "groq.com"):
 		return "groq"
-	case strings.Contains(lower, "together.xyz"):
+	case strings.Contains(lower, "together."):
 		return "together"
+	case strings.Contains(lower, "fireworks.ai"):
+		return "fireworks"
+	case strings.Contains(lower, "deepinfra.com"):
+		return "deepinfra"
+	case strings.Contains(lower, "anyscale.com"):
+		return "anyscale"
+	case strings.Contains(lower, "replicate.com"):
+		return "replicate"
+	case strings.Contains(lower, "huggingface.co"):
+		return "huggingface"
+	case strings.Contains(lower, "openrouter.ai"):
+		return "openrouter"
+	case strings.Contains(lower, "cloudflare.com"):
+		return "cloudflare"
 	}
 	return ""
 }

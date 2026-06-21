@@ -13,6 +13,7 @@ export const ASSET_TYPE_LABELS: Record<string, string> = {
   gcs_bucket: "GCS Bucket",
   azure_blob: "Azure Blob",
   postgresql: "PostgreSQL",
+  mysql: "MySQL",
   api_endpoint: "API Endpoint",
   llm_endpoint: "LLM Endpoint",
 };

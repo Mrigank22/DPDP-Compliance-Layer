@@ -339,4 +339,6 @@ class Report(Base):
     file_size_bytes = Column(BigInteger, nullable=True)
     generated_by   = Column(UUID(as_uuid=False), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     parameters     = Column(JSONB, nullable=False, default=dict)
+    content        = Column(Text, nullable=True)
+    content_html   = Column(Text, nullable=True)
     created_at     = Column(DateTime(timezone=True), nullable=False, default=_now)

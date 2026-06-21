@@ -41,6 +41,7 @@ func (s *ReportService) List(ctx context.Context, tenantID string, page, pageSiz
 	}
 	var reports []*models.Report
 	total, err := s.pg.NewSelect().Model(&reports).
+		ExcludeColumn("content", "content_html").
 		Where("r.tenant_id = ?", tenantID).
 		OrderExpr("r.created_at DESC").
 		Limit(pageSize).Offset((page-1)*pageSize).
@@ -50,6 +51,26 @@ func (s *ReportService) List(ctx context.Context, tenantID string, page, pageSiz
 
 // GetByID returns a single report record.
 func (s *ReportService) GetByID(ctx context.Context, id, tenantID string) (*models.Report, error) {
+	if err := db.SetTenantContext(ctx, s.pg, tenantID); err != nil {
+		return nil, err
+	}
+	report := &models.Report{}
+	err := s.pg.NewSelect().Model(report).
+		ExcludeColumn("content", "content_html").
+		Where("r.id = ? AND r.tenant_id = ?", id, tenantID).
+		Scan(ctx)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound("report")
+		}
+		return nil, err
+	}
+	return report, nil
+}
+
+// GetForDownload returns a single report including its stored body so it can be
+// streamed to the client. Used only by the download endpoint.
+func (s *ReportService) GetForDownload(ctx context.Context, id, tenantID string) (*models.Report, error) {
 	if err := db.SetTenantContext(ctx, s.pg, tenantID); err != nil {
 		return nil, err
 	}

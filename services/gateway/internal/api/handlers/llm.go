@@ -343,20 +343,38 @@ func (h *LLMHandler) Handle(c *gin.Context) {
 func detectProvider(rawURL string) llmProvider {
 	lower := strings.ToLower(rawURL)
 	switch {
-	case strings.Contains(lower, "openai.com"):
-		return providerOpenAI
 	case strings.Contains(lower, "anthropic.com"):
 		return providerAnthropic
-	case strings.Contains(lower, "googleapis.com") || strings.Contains(lower, "generativelanguage"):
+	case strings.Contains(lower, "aiplatform.googleapis.com"),
+		strings.Contains(lower, "generativelanguage"),
+		strings.Contains(lower, "googleapis.com"):
 		return providerGoogle
-	case strings.Contains(lower, "cohere.com"):
+	case strings.Contains(lower, "cohere.com"), strings.Contains(lower, "cohere.ai"):
 		return providerCohere
 	case strings.Contains(lower, "mistral.ai"):
 		return providerMistral
 	case strings.Contains(lower, "groq.com"):
 		return providerGroq
-	case strings.Contains(lower, "together.xyz") || strings.Contains(lower, "togethercomputer"):
+	case strings.Contains(lower, "together.xyz"),
+		strings.Contains(lower, "together.ai"),
+		strings.Contains(lower, "togethercomputer"):
 		return providerTogether
+	// OpenAI and the broad ecosystem of OpenAI-compatible chat/completions APIs.
+	// These all speak the {"messages":[...]} / {"prompt":...} / {"input":...}
+	// schema, so the OpenAI extraction + redaction path handles them precisely.
+	case strings.Contains(lower, "openai.com"),
+		strings.Contains(lower, "openai.azure.com"),
+		strings.Contains(lower, "inference.ai.azure.com"),
+		strings.Contains(lower, "perplexity.ai"),
+		strings.Contains(lower, "deepseek.com"),
+		strings.Contains(lower, "x.ai"),
+		strings.Contains(lower, "fireworks.ai"),
+		strings.Contains(lower, "openrouter.ai"),
+		strings.Contains(lower, "deepinfra.com"),
+		strings.Contains(lower, "anyscale.com"),
+		strings.Contains(lower, "nvidia.com"),
+		strings.Contains(lower, "sambanova.ai"):
+		return providerOpenAI
 	}
 	return providerUnknown
 }

@@ -15,6 +15,7 @@ const (
 	AssetTypeGCSBucket   = "gcs_bucket"
 	AssetTypeAzureBlob   = "azure_blob"
 	AssetTypePostgreSQL  = "postgresql"
+	AssetTypeMySQL       = "mysql"
 	AssetTypeAPIEndpoint = "api_endpoint"
 	AssetTypeLLMEndpoint = "llm_endpoint"
 )
@@ -42,7 +43,7 @@ type Asset struct {
 	ID               string         `bun:"id,pk,type:uuid,default:uuid_generate_v4()" json:"id"`
 	TenantID         string         `bun:"tenant_id,notnull,type:uuid"                json:"tenant_id"`
 	Name             string         `bun:"name,notnull"                               json:"name"             validate:"required,min=1,max=255"`
-	AssetType        string         `bun:"asset_type,notnull"                         json:"asset_type"       validate:"required,oneof=s3_bucket rds_instance gcs_bucket azure_blob postgresql api_endpoint llm_endpoint"`
+	AssetType        string         `bun:"asset_type,notnull"                         json:"asset_type"       validate:"required,oneof=s3_bucket rds_instance gcs_bucket azure_blob postgresql mysql api_endpoint llm_endpoint"`
 	Provider         string         `bun:"provider,notnull"                           json:"provider"         validate:"required,oneof=aws gcp azure onprem"`
 	Region           *string        `bun:"region"                                     json:"region"`
 	ConnectionConfig map[string]any `bun:"connection_config,type:jsonb"               json:"-"`               // encrypted at app layer; never returned raw
@@ -65,7 +66,7 @@ type Asset struct {
 
 type CreateAssetInput struct {
 	Name             string         `json:"name"              validate:"required,min=1,max=255"`
-	AssetType        string         `json:"asset_type"        validate:"required,oneof=s3_bucket rds_instance gcs_bucket azure_blob postgresql api_endpoint llm_endpoint"`
+	AssetType        string         `json:"asset_type"        validate:"required,oneof=s3_bucket rds_instance gcs_bucket azure_blob postgresql mysql api_endpoint llm_endpoint"`
 	Provider         string         `json:"provider"          validate:"required,oneof=aws gcp azure onprem"`
 	Region           *string        `json:"region"`
 	ConnectionConfig map[string]any `json:"connection_config" validate:"required"`

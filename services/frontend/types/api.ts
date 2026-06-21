@@ -11,6 +11,7 @@ export const ASSET_TYPES = [
   "gcs_bucket",
   "azure_blob",
   "postgresql",
+  "mysql",
   "api_endpoint",
   "llm_endpoint",
 ] as const;

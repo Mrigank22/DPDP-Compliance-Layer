@@ -9,7 +9,8 @@ from typing import Any
 from app.celery_app import app
 from app.config import settings
 from app.db.client import get_db
-from app.db.models import Asset, ConsentRecord, Finding, Policy, Report, RightsRequest, Scan
+from app.db.models import Asset, ConsentRecord, Finding, Policy, Report, RightsRequest, Scan, Tenant
+from app.tasks.report_html import render_report_html
 
 logger = logging.getLogger(__name__)
 
@@ -38,14 +39,19 @@ def generate_report(self, report_id: str, tenant_id: str) -> dict[str, Any]:
 
         try:
             content = _build_content(db, report, tenant_id)
-            file_url, file_size = _upload(content, report, tenant_id)
+            content_json = json.dumps(content, indent=2, default=str)
+            content_html = render_report_html(content, report)
+            file_size = len(content_json.encode("utf-8"))
+            file_url = _upload(content_json, report, tenant_id)
 
             report.status = "ready"
+            report.content = content_json
+            report.content_html = content_html
             report.file_url = file_url
             report.file_size_bytes = file_size
             db.commit()
 
-            logger.info("Report %s ready: %s (%d bytes)", report_id, file_url, file_size)
+            logger.info("Report %s ready: %s (%d bytes)", report_id, file_url or "db", file_size)
             return {"status": "ready", "report_id": report_id, "file_url": file_url}
 
         except Exception as exc:
@@ -60,45 +66,253 @@ def generate_report(self, report_id: str, tenant_id: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 def _build_content(db, report: Report, tenant_id: str) -> dict[str, Any]:
+    rtype = report.report_type
     content: dict[str, Any] = {
         "report_id":    report.id,
-        "report_type":  report.report_type,
+        "report_type":  rtype,
         "title":        report.title,
         "tenant_id":    tenant_id,
+        "organisation": _tenant_name(db, tenant_id),
         "generated_at": datetime.now(timezone.utc).isoformat(),
+        "period":       _period(report.parameters or {}),
         "parameters":   report.parameters or {},
     }
 
-    rtype = report.report_type
-
     if rtype == "dpdp_compliance":
-        content["assets"]             = _assets(db, tenant_id)
-        content["findings"]           = _findings_summary(db, tenant_id)
-        content["rights_requests"]    = _rights_summary(db, tenant_id)
-        content["compliance_checks"]  = _compliance_checks(db, tenant_id)
-
-    elif rtype == "asset_inventory":
-        content["assets"] = _assets(db, tenant_id, detailed=True)
+        assets   = _assets(db, tenant_id)
+        findings = _findings_summary(db, tenant_id)
+        checks   = _compliance_checks(db, tenant_id)
+        content["overview"]          = _overview(assets, findings)
+        content["compliance_rating"] = _overall_rating(checks)
+        content["compliance_checks"] = checks
+        content["asset_breakdown"]   = _asset_breakdown(assets)
+        content["assets"]            = assets
+        content["findings"]          = findings
+        content["rights_requests"]   = _rights_summary(db, tenant_id)
+        content["consent_summary"]   = _consent_summary(db, tenant_id)
+        content["remediation"]       = _remediation(checks, findings)
 
     elif rtype == "executive_summary":
-        content["metrics"] = _executive_metrics(db, tenant_id)
+        assets   = _assets(db, tenant_id)
+        findings = _findings_summary(db, tenant_id)
+        checks   = _compliance_checks(db, tenant_id)
+        rights   = _rights_summary(db, tenant_id)
+        content["metrics"]           = _executive_metrics(db, tenant_id)
+        content["overview"]          = _overview(assets, findings)
+        content["compliance_rating"] = _overall_rating(checks)
+        content["asset_breakdown"]   = _asset_breakdown(assets)
+        content["findings"]          = findings
+        content["top_risk_assets"]   = _top_risk_assets(assets)
+        content["rights_requests"]   = rights
+        content["consent_summary"]   = _consent_summary(db, tenant_id)
+        content["recommendations"]   = _recommendations(checks, findings, rights)
+
+    elif rtype == "asset_inventory":
+        assets   = _assets(db, tenant_id, detailed=True)
+        findings = _findings_summary(db, tenant_id)
+        content["overview"]        = _overview(assets, findings)
+        content["asset_breakdown"] = _asset_breakdown(assets)
+        content["pii_categories"]  = findings.get("by_pii_type", {})
+        content["assets"]          = assets
 
     elif rtype == "incident_report":
-        content["findings"]  = _findings_summary(db, tenant_id)
-        content["scans"]     = _scan_history(db, tenant_id, limit=50)
+        assets   = _assets(db, tenant_id)
+        findings = _findings_summary(db, tenant_id)
+        content["overview"]            = _overview(assets, findings)
+        content["affected_assets"]     = _affected_assets(assets)
+        content["findings"]            = findings
+        content["scans"]               = _scan_history(db, tenant_id, limit=50)
+        content["breach_notification"] = _breach_checklist(findings)
 
     elif rtype == "dpia":
-        content["assets"]         = _assets(db, tenant_id)
-        content["findings"]       = _findings_summary(db, tenant_id)
+        assets   = _assets(db, tenant_id)
+        findings = _findings_summary(db, tenant_id)
+        content["overview"]        = _overview(assets, findings)
+        content["asset_breakdown"] = _asset_breakdown(assets)
+        content["assets"]          = assets
+        content["findings"]        = findings
         content["consent_summary"] = _consent_summary(db, tenant_id)
+        content["risk_register"]   = _risk_register(findings)
+        content["mitigations"]     = _mitigations(db, tenant_id)
 
     elif rtype == "audit_evidence":
+        assets   = _assets(db, tenant_id)
+        findings = _findings_summary(db, tenant_id)
+        content["overview"]        = _overview(assets, findings)
         content["scans"]           = _scan_history(db, tenant_id)
-        content["findings"]        = _findings_summary(db, tenant_id)
+        content["findings"]        = findings
         content["rights_requests"] = _rights_summary(db, tenant_id)
         content["consent_summary"] = _consent_summary(db, tenant_id)
+        content["policies"]        = _policy_summary(db, tenant_id)
 
     return content
+
+
+# ---------------------------------------------------------------------------
+# Derived / aggregate builders (shared across report types)
+# ---------------------------------------------------------------------------
+
+def _tenant_name(db, tenant_id: str) -> str:
+    try:
+        t = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+        name = getattr(t, "name", None) if t else None
+        return name or "Your Organisation"
+    except Exception:  # pragma: no cover - defensive
+        return "Your Organisation"
+
+
+def _period(params: dict) -> str:
+    days = params.get("days")
+    if days:
+        try:
+            return f"Trailing {int(days)} days"
+        except (TypeError, ValueError):
+            pass
+    start, end = params.get("start_date"), params.get("end_date")
+    if start or end:
+        return f"{start or '—'} to {end or '—'}"
+    return "As of report date"
+
+
+def _overview(assets: list[dict], findings: dict) -> dict[str, Any]:
+    n = len(assets)
+    by_sev = findings.get("by_severity", {})
+    return {
+        "total_assets":        n,
+        "total_pii_records":   sum(a.get("pii_record_count", 0) for a in assets),
+        "avg_risk_score":      round(sum(a.get("risk_score", 0) for a in assets) / max(n, 1), 1),
+        "open_critical":       by_sev.get("critical", 0),
+        "open_high":           by_sev.get("high", 0),
+        "total_findings":      findings.get("total", 0),
+        "unresolved_findings": findings.get("unresolved", 0),
+    }
+
+
+def _asset_breakdown(assets: list[dict]) -> dict[str, dict]:
+    by_type: dict[str, int] = {}
+    by_provider: dict[str, int] = {}
+    for a in assets:
+        t = a.get("type", "unknown")
+        p = a.get("provider", "unknown")
+        by_type[t] = by_type.get(t, 0) + 1
+        by_provider[p] = by_provider.get(p, 0) + 1
+    return {"by_type": by_type, "by_provider": by_provider}
+
+
+def _top_risk_assets(assets: list[dict], n: int = 8) -> list[dict]:
+    return sorted(assets, key=lambda a: a.get("risk_score", 0), reverse=True)[:n]
+
+
+def _overall_rating(checks: list[dict]) -> dict[str, Any]:
+    total = len(checks) or 1
+    compliant = sum(1 for c in checks if c.get("status") == "compliant")
+    gaps = total - compliant
+    pct = round(compliant / total * 100)
+    if pct >= 80:
+        rating = "Substantially compliant"
+    elif pct >= 50:
+        rating = "Partially compliant"
+    else:
+        rating = "Action required"
+    return {"rating": rating, "compliant": compliant, "gaps": gaps, "total": total, "score_pct": pct}
+
+
+def _remediation(checks: list[dict], findings: dict) -> list[dict]:
+    items: list[dict] = []
+    for c in checks:
+        if c.get("status") != "compliant":
+            items.append({"priority": "High", "item": f"Close gap: {c.get('title')}", "basis": c.get("details", "")})
+    by_sev = findings.get("by_severity", {})
+    if by_sev.get("critical"):
+        items.append({"priority": "Critical", "item": f"Remediate {by_sev['critical']} critical finding(s)",
+                      "basis": "Unresolved critical-severity findings increase breach exposure"})
+    if by_sev.get("high"):
+        items.append({"priority": "High", "item": f"Remediate {by_sev['high']} high-severity finding(s)",
+                      "basis": "Unresolved high-severity findings"})
+    if not items:
+        items.append({"priority": "Maintain", "item": "No material gaps detected — maintain controls and re-scan on schedule",
+                      "basis": "All tracked checks compliant"})
+    return items
+
+
+def _recommendations(checks: list[dict], findings: dict, rights: dict) -> list[str]:
+    recs: list[str] = []
+    for c in checks:
+        if c.get("status") != "compliant":
+            recs.append(f"Establish {c.get('title')} to close the identified control gap.")
+    if findings.get("by_severity", {}).get("critical"):
+        recs.append("Prioritise remediation of critical findings to reduce breach exposure.")
+    if rights.get("overdue"):
+        recs.append(f"Resolve {rights['overdue']} overdue data-principal request(s) within statutory timelines.")
+    if not recs:
+        recs.append("Posture is healthy; continue scheduled scanning and quarterly evidence generation.")
+    return recs
+
+
+def _affected_assets(assets: list[dict]) -> list[dict]:
+    return [a for a in assets if a.get("pii_record_count", 0) > 0 or a.get("risk_score", 0) >= 50]
+
+
+def _breach_checklist(findings: dict) -> list[dict]:
+    has_crit = bool(findings.get("by_severity", {}).get("critical"))
+    return [
+        {"step": "Detect and assess breach severity", "status": "complete"},
+        {"step": "Intimate the Data Protection Board of India (DPDP §8(6))", "status": "action" if has_crit else "not_required"},
+        {"step": "Notify affected Data Principals", "status": "action" if has_crit else "not_required"},
+        {"step": "Contain and remediate root cause", "status": "in_progress" if findings.get("unresolved") else "complete"},
+        {"step": "Document incident and retain evidence", "status": "complete"},
+    ]
+
+
+def _risk_register(findings: dict) -> list[dict]:
+    by_sev = findings.get("by_severity", {})
+    names = {
+        "critical": "Exposure of sensitive personal data",
+        "high":     "Inadequate safeguards on personal data",
+        "medium":   "Residual misconfigurations",
+        "low":      "Minor data-hygiene issues",
+    }
+    rating = {
+        "critical": ("Likely", "Severe"),
+        "high":     ("Possible", "Major"),
+        "medium":   ("Possible", "Moderate"),
+        "low":      ("Unlikely", "Minor"),
+    }
+    reg: list[dict] = []
+    for sev in ("critical", "high", "medium", "low"):
+        count = by_sev.get(sev, 0)
+        if count:
+            likelihood, impact = rating[sev]
+            reg.append({"risk": names[sev], "count": count, "likelihood": likelihood, "impact": impact, "level": sev})
+    if not reg:
+        reg.append({"risk": "No material risks identified at time of assessment", "count": 0,
+                    "likelihood": "Unlikely", "impact": "Minor", "level": "low"})
+    return reg
+
+
+def _mitigations(db, tenant_id: str) -> dict[str, int]:
+    def cnt(ptype: str) -> int:
+        return db.query(Policy).filter(
+            Policy.tenant_id == tenant_id, Policy.policy_type == ptype, Policy.status == "active"
+        ).count()
+    return {
+        "data_masking":     cnt("data_masking"),
+        "transfer_control": cnt("transfer_control"),
+        "llm_guard":        cnt("llm_guard"),
+        "consent_records":  db.query(ConsentRecord).filter(ConsentRecord.tenant_id == tenant_id).count(),
+    }
+
+
+def _policy_summary(db, tenant_id: str) -> dict[str, Any]:
+    rows = db.query(Policy).filter(Policy.tenant_id == tenant_id).all()
+    by_type: dict[str, int] = {}
+    active = 0
+    for p in rows:
+        by_type[p.policy_type] = by_type.get(p.policy_type, 0) + 1
+        if p.status == "active":
+            active += 1
+    return {"total": len(rows), "active": active, "by_type": by_type}
+
 
 
 def _assets(db, tenant_id: str, detailed: bool = False) -> list[dict]:
@@ -262,25 +476,23 @@ def _scan_history(db, tenant_id: str, limit: int = 100) -> list[dict]:
 # S3 upload
 # ---------------------------------------------------------------------------
 
-def _upload(content: dict, report: Report, tenant_id: str) -> tuple[str, int]:
+def _upload(content_json: str, report: Report, tenant_id: str) -> str | None:
     """
-    Persist the report JSON to S3 and return a browser-downloadable URL.
+    Optionally mirror the report JSON to S3 and return a browser-downloadable URL.
 
     When ``s3_reports_bucket`` is configured the object is uploaded with
-    server-side encryption and a time-limited presigned GET URL is returned so
-    the frontend ``<a href>`` link works directly. When S3 is not configured
-    (e.g. local development) a non-resolvable ``internal://`` placeholder is
-    returned so callers can still see that generation succeeded.
+    server-side encryption and a time-limited presigned GET URL is returned. When
+    S3 is not configured (or the upload fails) ``None`` is returned and the report
+    is served directly from the database by the control plane — so downloads work
+    in every deployment without external object storage.
     """
-    data      = json.dumps(content, indent=2, default=str).encode("utf-8")
-    file_size = len(data)
-    key       = f"reports/{tenant_id}/{report.id}.json"
-
     bucket = settings.s3_reports_bucket
     if not bucket:
-        logger.warning("S3_REPORTS_BUCKET not configured — report stored as placeholder only")
-        return f"internal://{key}", file_size
+        logger.info("S3_REPORTS_BUCKET not configured — report will be served from the database")
+        return None
 
+    data = content_json.encode("utf-8")
+    key  = f"reports/{tenant_id}/{report.id}.json"
     try:
         import boto3
 
@@ -293,12 +505,11 @@ def _upload(content: dict, report: Report, tenant_id: str) -> tuple[str, int]:
             ContentDisposition=f'attachment; filename="{report.id}.json"',
             ServerSideEncryption="AES256",
         )
-        url = s3.generate_presigned_url(
+        return s3.generate_presigned_url(
             "get_object",
             Params={"Bucket": bucket, "Key": key},
             ExpiresIn=settings.report_url_ttl_seconds,
         )
-        return url, file_size
     except Exception as exc:
-        logger.warning("S3 upload failed (%s) — using placeholder URL", exc)
-        return f"internal://{key}", file_size
+        logger.warning("S3 upload failed (%s) — report will be served from the database", exc)
+        return None

@@ -134,6 +134,12 @@ class APIClient {
     return res.data;
   }
 
+  /** Fetch a binary payload (e.g. a file download) as a Blob, with auth + refresh. */
+  async getBlob(url: string, config?: AxiosRequestConfig): Promise<Blob> {
+    const res = await this.instance.get(url, { ...config, responseType: "blob" });
+    return res.data as Blob;
+  }
+
   async post<T = unknown>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<ApiEnvelope<T>> {
     const res = await this.instance.post<ApiEnvelope<T>>(url, data, config);
     return res.data;
