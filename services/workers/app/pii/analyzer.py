@@ -65,42 +65,85 @@ ENTITIES = [
 
 
 class PIIAnalyzer:
-    """Thread-safe PII analysis interface for scan workers."""
+    """Thread-safe PII analysis interface for scan workers.
 
-    def __init__(self, score_threshold: float | None = None):
+    Optionally applies per-tenant tuning:
+      * ``score_threshold`` overrides the global Presidio confidence threshold.
+      * ``custom_detectors`` are tenant-defined ``(key, score, compiled_regex)``
+        tuples that add bespoke PII categories (e.g. EMPLOYEE_ID).
+      * ``ignore_patterns`` are compiled regexes; any match whose text matches one
+        is suppressed (allow-list of known false positives).
+    """
+
+    # Never run a (user-supplied) custom regex over a value longer than this.
+    _CUSTOM_MAX_LEN = 4096
+
+    def __init__(
+        self,
+        score_threshold: float | None = None,
+        custom_detectors: list[tuple[str, float, Any]] | None = None,
+        ignore_patterns: list[Any] | None = None,
+    ):
         self._engine = _build_engine()
         self._threshold = score_threshold if score_threshold is not None else settings.presidio_score_threshold
+        self._custom = custom_detectors or []
+        self._ignore = ignore_patterns or []
 
     def analyze_text(self, text: str, field_name: str = "text") -> list[PIIMatch]:
         if not text or not text.strip():
             return []
-        # Cheap pre-filter: skip the (expensive) spaCy NLP pipeline for values
-        # that cannot contain any supported entity. Structured identifiers always
-        # contain a digit or '@'; free-text names/locations contain a capitalised
-        # alphabetic token. Boolean/enum/short codes are skipped outright.
-        if not _maybe_pii(text):
-            return []
-        try:
-            results = self._engine.analyze(
-                text=text,
-                entities=ENTITIES,
-                language="en",
-                score_threshold=self._threshold,
-            )
-        except Exception as exc:
-            logger.warning("Presidio error for field %s: %s", field_name, exc)
-            return []
-        return [
-            PIIMatch(
-                pii_type=r.entity_type,
-                field_name=field_name,
-                start=r.start,
-                end=r.end,
-                score=r.score,
-                sample=_safe_sample(text[r.start:r.end]),
-            )
-            for r in results
-        ]
+
+        matches: list[PIIMatch] = []
+
+        # Cheap pre-filter gates only the expensive spaCy/Presidio pipeline.
+        # Structured identifiers always contain a digit or '@'; free-text
+        # names/locations contain a capitalised alphabetic token. Boolean/enum/
+        # short codes are skipped outright.
+        if _maybe_pii(text):
+            try:
+                results = self._engine.analyze(
+                    text=text,
+                    entities=ENTITIES,
+                    language="en",
+                    score_threshold=self._threshold,
+                )
+                matches.extend(
+                    PIIMatch(
+                        pii_type=r.entity_type,
+                        field_name=field_name,
+                        start=r.start,
+                        end=r.end,
+                        score=r.score,
+                        sample=_safe_sample(text[r.start:r.end]),
+                    )
+                    for r in results
+                )
+            except Exception as exc:
+                logger.warning("Presidio error for field %s: %s", field_name, exc)
+
+        # Tenant-defined custom detectors. Validated as RE2 on write and
+        # length-capped here, so matching is always bounded.
+        if self._custom and len(text) <= self._CUSTOM_MAX_LEN:
+            for key, score, pattern in self._custom:
+                for m in pattern.finditer(text):
+                    if m.end() > m.start():
+                        matches.append(PIIMatch(
+                            pii_type=key,
+                            field_name=field_name,
+                            start=m.start(),
+                            end=m.end(),
+                            score=score,
+                            sample=_safe_sample(text[m.start():m.end()]),
+                        ))
+
+        # Allow-list / ignore patterns: drop matches that are known false positives.
+        if self._ignore and matches:
+            matches = [
+                mm for mm in matches
+                if not _is_ignored(text[mm.start:mm.end], self._ignore)
+            ]
+
+        return matches
 
     def analyze_record(self, record: dict[str, Any], record_id: Any = None) -> RecordAnalysis:
         analysis = RecordAnalysis(record_id=record_id)
@@ -137,6 +180,17 @@ def _safe_sample(text: str) -> str:
     if n <= 8:
         return "*" * n
     return text[:4] + "****" + text[n - 4:]
+
+
+def _is_ignored(value: str, patterns: list[Any]) -> bool:
+    """True when the matched value should be suppressed (allow-list hit)."""
+    for pattern in patterns:
+        try:
+            if pattern.search(value):
+                return True
+        except Exception:  # noqa: BLE001 - never let a bad pattern break a scan
+            continue
+    return False
 
 
 def _maybe_pii(text: str) -> bool:

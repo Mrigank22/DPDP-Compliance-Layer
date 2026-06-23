@@ -168,6 +168,56 @@ class PostgreSQLConnector(BaseConnector):
             cur.execute(sql, params)
             return int(cur.fetchone()[0])
 
+    def erase_records(self, source_name: str, term: str, max_deletes: int = 100000) -> int | None:
+        """
+        Delete rows in ``source_name`` whose text columns contain ``term`` (e.g. a
+        data-principal email), capped at ``max_deletes``. Uses a dedicated
+        read-write connection (the scanning connection is read-only) and commits
+        atomically. Returns the number of rows deleted.
+        """
+        schema = self.config.get("schema", "public")
+        source = next((s for s in self.list_sources() if s["name"] == source_name), None)
+        if source is None:
+            return 0
+        cols = [c["name"] for c in source.get("columns", [])]
+        if not cols:
+            return 0
+
+        safe_term = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{safe_term}%"
+        clauses = " OR ".join(f'"{c}"::text ILIKE %s ESCAPE \'\\\'' for c in cols)
+        # ctid sub-select caps the delete so a single call can never wipe an
+        # unbounded number of rows.
+        sql = (
+            f'DELETE FROM "{schema}"."{source_name}" '
+            f'WHERE ctid IN (SELECT ctid FROM "{schema}"."{source_name}" '
+            f'WHERE {clauses} LIMIT %s)'
+        )
+        params = [pattern] * len(cols) + [int(max_deletes)]
+
+        conn = psycopg2.connect(
+            host=self.config.get("host", "localhost"),
+            port=int(self.config.get("port", 5432)),
+            dbname=self.config.get("database", "postgres"),
+            user=self.config.get("username"),
+            password=self.config.get("password"),
+            sslmode=self.config.get("ssl_mode", "prefer"),
+            connect_timeout=10,
+            application_name="datasentinel-erasure",
+        )
+        try:
+            conn.autocommit = False
+            with conn.cursor() as cur:
+                cur.execute(sql, params)
+                deleted = cur.rowcount
+            conn.commit()
+            return int(deleted)
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
     def posture_check(self) -> list[PostureFinding]:
         """Inspect transport security posture of the database connection."""
         findings: list[PostureFinding] = []

@@ -337,6 +337,32 @@ FLUSH PRIVILEGES;`}
         the container’s public access level set to <strong>Private</strong>.
       </p>
 
+      <H2 id="warehouses">Data warehouses &amp; SaaS</H2>
+      <p>
+        DataSentinel also scans cloud data warehouses and SaaS systems. Connect
+        them with a <strong>read-only</strong> principal scoped to the data you
+        want scanned. Drivers are loaded on demand, so adding one type never
+        affects the others.
+      </p>
+      <Table
+        head={["Type", "Key connection fields"]}
+        rows={[
+          [<span key="sf"><strong>Snowflake</strong> <code>snowflake</code></span>, "account, user, password, warehouse, database, schema, role"],
+          [<span key="bq"><strong>BigQuery</strong> <code>bigquery</code></span>, "project, dataset, credentials_json (or workload identity)"],
+          [<span key="rs"><strong>Amazon Redshift</strong> <code>redshift</code></span>, "host, port (5439), database, username, password, ssl_mode"],
+          [<span key="db"><strong>Databricks</strong> <code>databricks</code></span>, "server_hostname, http_path, access_token, catalog, schema"],
+          [<span key="mongo"><strong>MongoDB</strong> <code>mongodb</code></span>, "uri (or host/port + credentials), database, tls"],
+          [<span key="crm"><strong>Salesforce</strong> <code>salesforce</code></span>, "username, password, security_token, domain (login/test) — or instance_url + access_token"],
+        ]}
+      />
+      <Callout variant="tip" title="Erasure scope">
+        Warehouses, SaaS and NoSQL sources are searched for a data principal’s
+        records during a DSR, but are flagged for <strong>manual</strong> erasure
+        rather than auto-deleted — only transactional databases (PostgreSQL, MySQL)
+        are erased automatically after approval. See{" "}
+        <DocLink href="/docs/rights">Rights &amp; DSR</DocLink>.
+      </Callout>
+
       <H2 id="via-api">Connect via the API</H2>
       <p>
         You can register assets programmatically. See{" "}

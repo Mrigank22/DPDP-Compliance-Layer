@@ -7,7 +7,10 @@ CREATE TABLE assets (
     asset_type        TEXT        NOT NULL
                                   CHECK (asset_type IN (
                                       's3_bucket','rds_instance','gcs_bucket',
-                                      'azure_blob','postgresql','api_endpoint','llm_endpoint'
+                                      'azure_blob','postgresql','mysql',
+                                      'snowflake','bigquery','redshift','databricks',
+                                      'mongodb','salesforce',
+                                      'api_endpoint','llm_endpoint'
                                   )),
     provider          TEXT        NOT NULL
                                   CHECK (provider IN ('aws','gcp','azure','onprem')),

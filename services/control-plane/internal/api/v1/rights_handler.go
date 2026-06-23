@@ -151,6 +151,38 @@ func (h *RightsHandler) Reject(c *gin.Context) {
 	ok(c, rr)
 }
 
+// Verify godoc
+// POST /api/v1/rights-requests/:id/verify
+// Records identity verification of the data principal and starts automated discovery.
+func (h *RightsHandler) Verify(c *gin.Context) {
+	var input models.VerifyRightsRequestInput
+	_ = c.ShouldBindJSON(&input)
+	tenantID := middleware.GetTenantID(c)
+	userID := middleware.GetUserID(c)
+
+	rr, err := h.rightsSvc.Verify(c.Request.Context(), c.Param("id"), tenantID, userID, input.Method)
+	if err != nil {
+		handleError(c, err)
+		return
+	}
+	ok(c, rr)
+}
+
+// Approve godoc
+// POST /api/v1/rights-requests/:id/approve
+// Authorises an erasure request (after discovery) and dispatches execution.
+func (h *RightsHandler) Approve(c *gin.Context) {
+	tenantID := middleware.GetTenantID(c)
+	userID := middleware.GetUserID(c)
+
+	rr, err := h.rightsSvc.Approve(c.Request.Context(), c.Param("id"), tenantID, userID)
+	if err != nil {
+		handleError(c, err)
+		return
+	}
+	ok(c, rr)
+}
+
 // Overdue godoc
 // GET /api/v1/rights-requests/overdue
 func (h *RightsHandler) Overdue(c *gin.Context) {

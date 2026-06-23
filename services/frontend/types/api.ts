@@ -12,6 +12,12 @@ export const ASSET_TYPES = [
   "azure_blob",
   "postgresql",
   "mysql",
+  "snowflake",
+  "bigquery",
+  "redshift",
+  "databricks",
+  "mongodb",
+  "salesforce",
   "api_endpoint",
   "llm_endpoint",
 ] as const;
@@ -77,7 +83,7 @@ export const ALERT_TYPES = [
 
 export const RIGHTS_TYPES = ["access", "correction", "erasure", "portability", "nomination"] as const;
 
-export const RIGHTS_STATUSES = ["received", "in_progress", "completed", "rejected"] as const;
+export const RIGHTS_STATUSES = ["received", "in_progress", "pending_approval", "completed", "rejected"] as const;
 
 export const REPORT_TYPES = [
   "dpdp_compliance",
@@ -244,6 +250,14 @@ export interface RightsRequest {
   notes?: string;
   response_data?: Record<string, unknown>;
   rejection_reason?: string;
+  verified_at?: string | null;
+  verification_method?: string | null;
+  verified_by?: string | null;
+  discovery_completed_at?: string | null;
+  approved_by?: string | null;
+  approved_at?: string | null;
+  erasure_plan?: Record<string, unknown> | null;
+  fulfillment_result?: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
 }

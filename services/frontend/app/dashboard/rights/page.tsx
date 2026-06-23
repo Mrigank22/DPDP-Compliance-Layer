@@ -11,6 +11,7 @@ import {
   CheckCircle2,
   XCircle,
   ScanSearch,
+  ShieldCheck,
   Mail,
 } from "lucide-react";
 import { rightsAPI } from "@/lib/api/rights";
@@ -163,9 +164,26 @@ function DetailModal({
     onSuccess: (r) => toast.success("Discovery dispatched", r.data?.message),
     onError: (e) => toast.error("Search failed", getApiErrorMessage(e)),
   });
+  const verify = useMutation({
+    mutationFn: () => rightsAPI.verify(request!.id, "manual"),
+    onSuccess: () => { invalidate(); toast.success("Identity verified", "Automated discovery started across your assets."); },
+    onError: (e) => toast.error("Could not verify", getApiErrorMessage(e)),
+  });
+  const approve = useMutation({
+    mutationFn: () => rightsAPI.approve(request!.id),
+    onSuccess: () => { invalidate(); toast.success("Erasure approved", "Execution has been dispatched."); },
+    onError: (e) => toast.error("Could not approve", getApiErrorMessage(e)),
+  });
 
   if (!request) return null;
   const left = daysLeft(request.due_date);
+  type Loc = { asset_name?: string; source?: string; record_count?: number; erasable?: boolean };
+  const discovery =
+    (request.response_data as { locations_found?: Loc[] } | undefined)?.locations_found ?? [];
+  const fulfill = request.fulfillment_result as
+    | { total_deleted?: number; manual_required?: number }
+    | null
+    | undefined;
 
   return (
     <Dialog open={!!request} onOpenChange={(v) => !v && onClose()}>
@@ -200,6 +218,75 @@ function DetailModal({
             <p className="rounded-lg border border-border bg-surface-2/40 p-3 text-sm text-muted">{request.notes}</p>
           </div>
         )}
+
+        {/* Fulfillment workflow */}
+        <div className="space-y-3 border-t border-border pt-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="font-mono text-[10px] uppercase tracking-wide text-faint">Identity verification</p>
+              <p className="text-sm text-foreground">
+                {request.verified_at
+                  ? `Verified (${request.verification_method ?? "manual"})`
+                  : "Not verified"}
+              </p>
+            </div>
+            {!request.verified_at &&
+              request.status !== "completed" &&
+              request.status !== "rejected" && (
+                <Button variant="outline" size="sm" disabled={verify.isPending} onClick={() => verify.mutate()}>
+                  <ShieldCheck className="h-4 w-4" /> Verify identity
+                </Button>
+              )}
+          </div>
+
+          {discovery.length > 0 && (
+            <div>
+              <p className="mb-1 font-mono text-[10px] uppercase tracking-wide text-faint">
+                Discovered locations ({discovery.length})
+              </p>
+              <div className="max-h-40 space-y-1 overflow-auto">
+                {discovery.map((l, i) => (
+                  <div
+                    key={i}
+                    className="flex items-center justify-between rounded-md border border-border bg-surface-2/40 px-3 py-1.5 text-xs"
+                  >
+                    <span className="text-foreground">
+                      {l.asset_name} <span className="text-faint">/ {l.source}</span>
+                    </span>
+                    <span className="font-mono text-muted">
+                      {l.record_count} rec{l.erasable === false ? " · manual" : ""}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {request.request_type === "erasure" && request.status === "pending_approval" && (
+            <div className="rounded-lg border border-critical/40 bg-critical/5 p-3">
+              <p className="text-sm text-foreground">
+                Discovery complete. Approving will <strong>permanently delete</strong> the
+                matched records from erasable sources. This cannot be undone.
+              </p>
+              <Button
+                variant="destructive"
+                size="sm"
+                className="mt-2"
+                disabled={approve.isPending}
+                onClick={() => approve.mutate()}
+              >
+                <CheckCircle2 className="h-4 w-4" /> Approve &amp; erase
+              </Button>
+            </div>
+          )}
+
+          {fulfill && (
+            <div className="rounded-lg border border-accent/30 bg-accent/5 p-3 text-xs text-foreground">
+              Erasure executed — <strong>{fulfill.total_deleted ?? 0}</strong> record(s) deleted;{" "}
+              {fulfill.manual_required ?? 0} location(s) need manual handling.
+            </div>
+          )}
+        </div>
 
         {request.status !== "completed" && request.status !== "rejected" && (
           <div className="space-y-3 border-t border-border pt-4">

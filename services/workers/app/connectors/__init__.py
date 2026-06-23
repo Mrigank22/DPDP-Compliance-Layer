@@ -8,3 +8,9 @@ from app.connectors.mysql_connector import MySQLConnector
 from app.connectors.s3_connector import S3Connector
 from app.connectors.gcs_connector import GCSConnector
 from app.connectors.azure_blob_connector import AzureBlobConnector
+from app.connectors.snowflake_connector import SnowflakeConnector
+from app.connectors.bigquery_connector import BigQueryConnector
+from app.connectors.redshift_connector import RedshiftConnector
+from app.connectors.databricks_connector import DatabricksConnector
+from app.connectors.mongodb_connector import MongoDBConnector
+from app.connectors.salesforce_connector import SalesforceConnector

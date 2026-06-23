@@ -17,6 +17,7 @@ from sqlalchemy import (
     BigInteger,
     Column,
     DateTime,
+    Float,
     ForeignKey,
     Integer,
     String,
@@ -255,6 +256,14 @@ class RightsRequest(Base):
     notes                = Column(Text, nullable=True)
     response_data        = Column(JSONB, nullable=True)
     rejection_reason     = Column(Text, nullable=True)
+    verified_at            = Column(DateTime(timezone=True), nullable=True)
+    verification_method    = Column(Text, nullable=True)
+    verified_by            = Column(UUID(as_uuid=False), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    discovery_completed_at = Column(DateTime(timezone=True), nullable=True)
+    approved_by            = Column(UUID(as_uuid=False), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    approved_at            = Column(DateTime(timezone=True), nullable=True)
+    erasure_plan           = Column(JSONB, nullable=True)
+    fulfillment_result     = Column(JSONB, nullable=True)
     created_at           = Column(DateTime(timezone=True), nullable=False, default=_now)
     updated_at           = Column(DateTime(timezone=True), nullable=False, default=_now, onupdate=_now)
 
@@ -342,3 +351,20 @@ class Report(Base):
     content        = Column(Text, nullable=True)
     content_html   = Column(Text, nullable=True)
     created_at     = Column(DateTime(timezone=True), nullable=False, default=_now)
+
+
+# ---------------------------------------------------------------------------
+# Detection settings (per-tenant PII detection tuning)
+# ---------------------------------------------------------------------------
+
+class DetectionSetting(Base):
+    __tablename__ = "detection_settings"
+
+    id                   = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    tenant_id            = Column(UUID(as_uuid=False), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, unique=True)
+    confidence_threshold = Column(Float, nullable=False, default=0.7)
+    custom_pii_types     = Column(JSONB, nullable=False, default=list)
+    ignore_patterns      = Column(JSONB, nullable=False, default=list)
+    updated_by           = Column(UUID(as_uuid=False), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at           = Column(DateTime(timezone=True), nullable=False, default=_now)
+    updated_at           = Column(DateTime(timezone=True), nullable=False, default=_now, onupdate=_now)

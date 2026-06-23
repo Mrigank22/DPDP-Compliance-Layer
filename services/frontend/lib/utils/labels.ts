@@ -14,6 +14,12 @@ export const ASSET_TYPE_LABELS: Record<string, string> = {
   azure_blob: "Azure Blob",
   postgresql: "PostgreSQL",
   mysql: "MySQL",
+  snowflake: "Snowflake",
+  bigquery: "BigQuery",
+  redshift: "Redshift",
+  databricks: "Databricks",
+  mongodb: "MongoDB",
+  salesforce: "Salesforce",
   api_endpoint: "API Endpoint",
   llm_endpoint: "LLM Endpoint",
 };

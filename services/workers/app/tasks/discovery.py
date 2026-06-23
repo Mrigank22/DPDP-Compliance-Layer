@@ -17,6 +17,7 @@ from app.connectors.base import get_connector
 from app.db.client import get_db
 from app.db.models import Asset, Finding, Scan
 from app.pii.analyzer import PIIAnalyzer
+from app.pii.settings_loader import DetectionConfig, load_detection_config
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,22 @@ def _get_analyzer() -> PIIAnalyzer:
     if _analyzer is None:
         _analyzer = PIIAnalyzer()
     return _analyzer
+
+
+def _build_tenant_analyzer(det: DetectionConfig) -> PIIAnalyzer:
+    """Build an analyzer applying a tenant's detection tuning.
+
+    Reuses the shared, engine-cached analyzer when the tenant has no custom
+    tuning, so the common path adds zero overhead.
+    """
+    if det.is_default:
+        return _get_analyzer()
+    custom = [(d.key, d.score, d.pattern) for d in det.custom]
+    return PIIAnalyzer(
+        score_threshold=det.threshold,
+        custom_detectors=custom,
+        ignore_patterns=det.ignore,
+    )
 
 
 class ScanTask(Task):
@@ -72,7 +89,9 @@ def run_scan(self, scan_id: str, asset_id: str, tenant_id: str, scan_type: str) 
                 raise ValueError(f"Asset {asset_id} not found for tenant {tenant_id}")
 
             conn_config = _decrypt_config(asset, tenant_id)
-            summary, findings = _execute_scan(asset, conn_config, tenant_id, scan_id, scan_type)
+            detection = load_detection_config(db, tenant_id)
+            analyzer = _build_tenant_analyzer(detection)
+            summary, findings = _execute_scan(analyzer, asset, conn_config, tenant_id, scan_id, scan_type)
 
             if findings:
                 _reconcile_findings(
@@ -122,9 +141,9 @@ def run_scan(self, scan_id: str, asset_id: str, tenant_id: str, scan_type: str) 
 
 
 def _execute_scan(
+    analyzer: PIIAnalyzer,
     asset: Asset, conn_config: dict, tenant_id: str, scan_id: str, scan_type: str
 ) -> tuple[dict[str, Any], list[Finding]]:
-    analyzer = _get_analyzer()
     all_findings: list[Finding] = []
     summary: dict[str, Any] = {
         "records_scanned": 0,

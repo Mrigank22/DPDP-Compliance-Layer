@@ -19,10 +19,11 @@ const (
 
 // Rights request status constants
 const (
-	RightsStatusReceived   = "received"
-	RightsStatusInProgress = "in_progress"
-	RightsStatusCompleted  = "completed"
-	RightsStatusRejected   = "rejected"
+	RightsStatusReceived        = "received"
+	RightsStatusInProgress      = "in_progress"
+	RightsStatusPendingApproval = "pending_approval"
+	RightsStatusCompleted       = "completed"
+	RightsStatusRejected        = "rejected"
 )
 
 // dpdpDueDays is the statutory deadline under the DPDP Act 2023.
@@ -37,12 +38,23 @@ type RightsRequest struct {
 	RequestType         string         `bun:"request_type,notnull"                       json:"request_type"           validate:"required,oneof=access correction erasure portability nomination"`
 	DataPrincipalEmail  string         `bun:"data_principal_email,notnull"               json:"data_principal_email"   validate:"required,email"`
 	DataPrincipalName   *string        `bun:"data_principal_name"                        json:"data_principal_name"`
-	Status              string         `bun:"status,notnull,default:received"            json:"status"                 validate:"omitempty,oneof=received in_progress completed rejected"`
+	Status              string         `bun:"status,notnull,default:received"            json:"status"                 validate:"omitempty,oneof=received in_progress pending_approval completed rejected"`
 	DueDate             time.Time      `bun:"due_date,notnull"                           json:"due_date"`
 	AssignedTo          *string        `bun:"assigned_to,type:uuid"                      json:"assigned_to"`
 	Notes               *string        `bun:"notes"                                      json:"notes"`
 	ResponseData        map[string]any `bun:"response_data,type:jsonb"                   json:"response_data"`
 	RejectionReason     *string        `bun:"rejection_reason"                           json:"rejection_reason"`
+
+	// Fulfillment workflow
+	VerifiedAt           *time.Time     `bun:"verified_at"                                json:"verified_at"`
+	VerificationMethod   *string        `bun:"verification_method"                        json:"verification_method"`
+	VerifiedBy           *string        `bun:"verified_by,type:uuid"                      json:"verified_by"`
+	DiscoveryCompletedAt *time.Time     `bun:"discovery_completed_at"                     json:"discovery_completed_at"`
+	ApprovedBy           *string        `bun:"approved_by,type:uuid"                      json:"approved_by"`
+	ApprovedAt           *time.Time     `bun:"approved_at"                                json:"approved_at"`
+	ErasurePlan          map[string]any `bun:"erasure_plan,type:jsonb"                    json:"erasure_plan"`
+	FulfillmentResult    map[string]any `bun:"fulfillment_result,type:jsonb"              json:"fulfillment_result"`
+
 	CreatedAt           time.Time      `bun:"created_at,notnull,default:now()"           json:"created_at"`
 	UpdatedAt           time.Time      `bun:"updated_at,notnull,default:now()"           json:"updated_at"`
 
@@ -74,16 +86,21 @@ type CreateRightsRequestInput struct {
 }
 
 type UpdateRightsRequestInput struct {
-	Status          *string        `json:"status"           validate:"omitempty,oneof=received in_progress completed rejected"`
+	Status          *string        `json:"status"           validate:"omitempty,oneof=received in_progress pending_approval completed rejected"`
 	AssignedTo      *string        `json:"assigned_to"      validate:"omitempty,uuid"`
 	Notes           *string        `json:"notes"            validate:"omitempty,max=5000"`
 	ResponseData    map[string]any `json:"response_data"`
 	RejectionReason *string        `json:"rejection_reason" validate:"omitempty,max=2000"`
 }
 
+// VerifyRightsRequestInput records how the data principal's identity was confirmed.
+type VerifyRightsRequestInput struct {
+	Method string `json:"method" validate:"omitempty,max=100"`
+}
+
 type RightsRequestListFilter struct {
 	RequestType string `query:"request_type" validate:"omitempty,oneof=access correction erasure portability nomination"`
-	Status      string `query:"status"       validate:"omitempty,oneof=received in_progress completed rejected"`
+	Status      string `query:"status"       validate:"omitempty,oneof=received in_progress pending_approval completed rejected"`
 	Overdue     *bool  `query:"overdue"`
 	Page        int    `query:"page"         validate:"omitempty,min=1"`
 	PageSize    int    `query:"page_size"    validate:"omitempty,min=1,max=100"`

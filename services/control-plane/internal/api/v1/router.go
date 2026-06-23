@@ -30,6 +30,8 @@ type Handlers struct {
 	Rights    *RightsHandler
 	Report    *ReportHandler
 	Gateway   *GatewayHandler
+	Detection *DetectionHandler
+	Lineage   *LineageHandler
 	Audit     *AuditHandler
 	User      *UserHandler
 	Health    *HealthHandler
@@ -67,6 +69,8 @@ func NewHandlers(
 	rightsSvc := services.NewRightsService(pg, ch, log, workerSvc)
 	reportSvc := services.NewReportService(pg, ch, log, workerSvc)
 	gatewaySvc := services.NewGatewayService(pg, ch, log)
+	detectionSvc := services.NewDetectionService(pg, log)
+	lineageSvc := services.NewLineageService(pg, log)
 
 	webhookHandler := NewWebhookHandler(pg, log)
 	alertHandler := NewAlertHandler(alertSvc)
@@ -88,6 +92,8 @@ func NewHandlers(
 		Rights:    NewRightsHandler(rightsSvc),
 		Report:    NewReportHandler(reportSvc),
 		Gateway:   NewGatewayHandler(gatewaySvc),
+		Detection: NewDetectionHandler(detectionSvc),
+		Lineage:   NewLineageHandler(lineageSvc),
 		Audit:     NewAuditHandler(ch),
 		User:      NewUserHandler(pg, log),
 		Health:    NewHealthHandler(pg, rdb, ch),
@@ -205,6 +211,16 @@ func RegisterRoutes(r *gin.Engine, h *Handlers, authSvc *services.AuthService, p
 		findings.POST("/:id/false-positive", middleware.RequireRole(models.RoleAnalyst), h.Finding.MarkFalsePositive)
 	}
 
+	// Detection settings (PII detection tuning: custom detectors, ignore-lists, threshold)
+	detection := api.Group("/detection-settings")
+	{
+		detection.GET("", h.Detection.Get)
+		detection.PUT("", middleware.RequireRole(models.RoleAdmin), h.Detection.Update)
+	}
+
+	// Data lineage (personal-data inventory + flow graph)
+	api.GET("/lineage", h.Lineage.Get)
+
 	// Alerts
 	alerts := api.Group("/alerts")
 	{
@@ -243,7 +259,9 @@ func RegisterRoutes(r *gin.Engine, h *Handlers, authSvc *services.AuthService, p
 		rights.POST("", h.Rights.Create)
 		rights.GET("/:id", h.Rights.Get)
 		rights.PATCH("/:id", middleware.RequireRole(models.RoleAnalyst), h.Rights.Update)
+		rights.POST("/:id/verify", middleware.RequireRole(models.RoleAnalyst), h.Rights.Verify)
 		rights.POST("/:id/assign", middleware.RequireRole(models.RoleAdmin), h.Rights.Assign)
+		rights.POST("/:id/approve", middleware.RequireRole(models.RoleAdmin), h.Rights.Approve)
 		rights.POST("/:id/complete", middleware.RequireRole(models.RoleAnalyst), h.Rights.Complete)
 		rights.POST("/:id/reject", middleware.RequireRole(models.RoleAdmin), h.Rights.Reject)
 		rights.POST("/:id/search", middleware.RequireRole(models.RoleAnalyst), h.Rights.SearchPrincipal)

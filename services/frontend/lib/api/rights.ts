@@ -27,6 +27,12 @@ export const rightsAPI = {
   reject: (id: string, reason: string) =>
     apiClient.post<RightsRequest>(`/rights-requests/${id}/reject`, { reason }),
 
+  verify: (id: string, method?: string) =>
+    apiClient.post<RightsRequest>(`/rights-requests/${id}/verify`, { method }),
+
+  approve: (id: string) =>
+    apiClient.post<RightsRequest>(`/rights-requests/${id}/approve`),
+
   overdue: () =>
     apiClient.get<{ requests: RightsRequest[]; count: number }>("/rights-requests/overdue"),
 

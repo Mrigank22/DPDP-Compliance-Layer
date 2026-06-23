@@ -176,6 +176,87 @@ func (s *RightsService) Assign(ctx context.Context, id, tenantID, userID, assign
 	})
 }
 
+// Verify records that the data principal's identity has been confirmed and kicks
+// off automated discovery across the tenant's connected assets. Identity
+// verification is a deliberate human gate (DPDP requires confirming the
+// requester) — everything after it is automated.
+func (s *RightsService) Verify(ctx context.Context, id, tenantID, userID, method string) (*models.RightsRequest, error) {
+	rr, err := s.GetByID(ctx, id, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	if rr.Status == models.RightsStatusCompleted || rr.Status == models.RightsStatusRejected {
+		return nil, ErrConflict("request is already closed")
+	}
+	if method == "" {
+		method = "manual"
+	}
+	now := time.Now()
+	rr.VerifiedAt = &now
+	rr.VerificationMethod = &method
+	rr.VerifiedBy = &userID
+	if rr.Status == models.RightsStatusReceived {
+		rr.Status = models.RightsStatusInProgress
+	}
+	if err := db.SetTenantContext(ctx, s.pg, tenantID); err != nil {
+		return nil, err
+	}
+	if _, err := s.pg.NewUpdate().Model(rr).
+		Set("verified_at = ?", now).
+		Set("verification_method = ?", method).
+		Set("verified_by = ?", userID).
+		Set("status = ?", rr.Status).
+		Where("id = ? AND tenant_id = ?", id, tenantID).Exec(ctx); err != nil {
+		return nil, err
+	}
+
+	// Automated discovery across all connected assets.
+	if _, derr := s.workerSvc.DispatchRightsSearch(ctx, id, rr.DataPrincipalEmail, tenantID); derr != nil {
+		s.log.Warn("dispatch discovery after verify failed",
+			zap.String("request_id", id), zap.Error(derr))
+	}
+	go s.writeAudit(context.Background(), tenantID, userID, models.AuditActionRightsRequestUpdated, "rights_request", id)
+	return rr, nil
+}
+
+// Approve authorises an erasure request after discovery and dispatches the
+// (automated) erasure execution. This is the safety gate: destructive deletion
+// never runs without an explicit human approval on a verified, discovered request.
+func (s *RightsService) Approve(ctx context.Context, id, tenantID, userID string) (*models.RightsRequest, error) {
+	rr, err := s.GetByID(ctx, id, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	if rr.RequestType != models.RightsTypeErasure {
+		return nil, ErrInvalidInput("only erasure requests require approval")
+	}
+	if rr.Status != models.RightsStatusPendingApproval {
+		return nil, ErrConflict("request is not awaiting approval")
+	}
+	if rr.VerifiedAt == nil {
+		return nil, ErrConflict("data principal identity must be verified before approval")
+	}
+	now := time.Now()
+	rr.ApprovedBy = &userID
+	rr.ApprovedAt = &now
+	rr.Status = models.RightsStatusInProgress
+	if err := db.SetTenantContext(ctx, s.pg, tenantID); err != nil {
+		return nil, err
+	}
+	if _, err := s.pg.NewUpdate().Model(rr).
+		Set("approved_by = ?", userID).
+		Set("approved_at = ?", now).
+		Set("status = ?", rr.Status).
+		Where("id = ? AND tenant_id = ?", id, tenantID).Exec(ctx); err != nil {
+		return nil, err
+	}
+	if _, derr := s.workerSvc.DispatchRightsErasure(ctx, id, tenantID); derr != nil {
+		return nil, fmt.Errorf("dispatch erasure: %w", derr)
+	}
+	go s.writeAudit(context.Background(), tenantID, userID, models.AuditActionRightsRequestUpdated, "rights_request", id)
+	return rr, nil
+}
+
 // GetOverdue returns all requests past their 90-day DPDP deadline.
 func (s *RightsService) GetOverdue(ctx context.Context, tenantID string) ([]*models.RightsRequest, error) {
 	if err := db.SetTenantContext(ctx, s.pg, tenantID); err != nil {

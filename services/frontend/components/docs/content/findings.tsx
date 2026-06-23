@@ -63,6 +63,36 @@ export default function Findings() {
         Use these to show progress as your team drives exposures down.
       </p>
 
+      <H2 id="tuning">Tune detection (reduce false positives)</H2>
+      <p>
+        Detection quality is controlled per tenant under{" "}
+        <strong>Settings → Detection</strong>. Three levers let you fit detection to
+        your data:
+      </p>
+      <ul>
+        <li>
+          <strong>Confidence threshold</strong> — the minimum confidence a detection
+          must reach to be recorded. Raise it (e.g. 0.8) to cut noise; lower it to
+          catch more. Defaults to 0.70.
+        </li>
+        <li>
+          <strong>Custom PII detectors</strong> — add organisation-specific
+          identifiers (employee IDs, policy numbers, internal references) as
+          labelled regular expressions, each with its own confidence score. They
+          become first-class PII types in scans and findings.
+        </li>
+        <li>
+          <strong>Ignore list</strong> — regular expressions whose matches are never
+          flagged, to silence known test data or non-sensitive look-alikes.
+        </li>
+      </ul>
+      <Callout variant="tip" title="Safe by design">
+        Custom and ignore patterns are validated as RE2 (linear-time, immune to
+        catastrophic backtracking) before they are saved, and matching is
+        length-bounded at scan time — so a bad pattern can never stall a scan.
+        Changes apply to the next scan.
+      </Callout>
+
       <H2 id="via-api">Work with findings via the API</H2>
       <CodeBlock
         lang="bash"

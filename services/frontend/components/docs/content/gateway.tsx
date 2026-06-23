@@ -176,6 +176,16 @@ export default function Gateway() {
         alert-only mode first, watch the live feed, then switch to enforce.
       </p>
 
+      <H2 id="lineage">Data lineage</H2>
+      <p>
+        Every flow the gateway observes feeds the{" "}
+        <strong>Lineage</strong> view, which joins your data inventory (where
+        personal data lives, from scans) to where it flows (destinations the
+        gateway has seen it sent to). It highlights external destinations and any
+        flows still awaiting approval, so you can answer “where does our personal
+        data go?” at a glance.
+      </p>
+
       <H2 id="safety">Built-in safety</H2>
       <ul>
         <li>

@@ -206,6 +206,28 @@ class MySQLConnector(BaseConnector):
             row = cur.fetchone()
             return int(row["n"]) if row else 0
 
+    def erase_records(self, source_name: str, term: str, max_deletes: int = 100000) -> int | None:
+        """Delete rows in ``source_name`` containing ``term`` (capped). Returns count."""
+        db = self._database()
+        source = next((s for s in self.list_sources() if s["name"] == source_name), None)
+        if source is None:
+            return 0
+        cols = [c["name"] for c in source.get("columns", [])]
+        if not cols:
+            return 0
+
+        safe_term = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{safe_term}%"
+        clauses = " OR ".join(f"CAST({_bq(c)} AS CHAR) LIKE %s" for c in cols)
+        # MySQL supports a direct row cap on DELETE.
+        sql = f"DELETE FROM {_bq(db)}.{_bq(source_name)} WHERE {clauses} LIMIT %s"
+        params = [pattern] * len(cols) + [int(max_deletes)]
+
+        conn = self._get_conn()  # autocommit=True
+        with conn.cursor() as cur:
+            cur.execute(sql, params)
+            return int(cur.rowcount)
+
     def posture_check(self) -> list[PostureFinding]:
         """Inspect transport security posture of the database connection."""
         findings: list[PostureFinding] = []

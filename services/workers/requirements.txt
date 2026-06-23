@@ -116,3 +116,13 @@ google-cloud-storage==2.18.2
 azure-storage-blob==12.22.0
 azure-identity==1.17.1
 PyMySQL==1.1.1
+
+# ---- Warehouse / SaaS connectors -----------------------------------------
+# Data-warehouse and SaaS drivers. SDK imports inside the connectors are lazy,
+# so a missing or broken driver never blocks worker startup — only the matching
+# asset type fails when scanned. Amazon Redshift reuses psycopg2 (above).
+snowflake-connector-python>=3.12,<4
+google-cloud-bigquery>=3.25,<4
+databricks-sql-connector>=3.4,<4
+pymongo>=4.9,<5
+simple-salesforce>=1.12,<2

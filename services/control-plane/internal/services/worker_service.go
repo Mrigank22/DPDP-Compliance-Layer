@@ -79,6 +79,19 @@ func (s *WorkerService) DispatchRightsSearch(ctx context.Context, requestID, pri
 	return task.ID, s.publish(ctx, QueueRights, task)
 }
 
+// DispatchRightsErasure enqueues an approved erasure-execution task.
+func (s *WorkerService) DispatchRightsErasure(ctx context.Context, requestID, tenantID string) (string, error) {
+	task := &celeryTask{
+		ID:   uuid.New().String(),
+		Task: "app.tasks.rights.execute_erasure",
+		Kwargs: map[string]any{
+			"request_id": requestID,
+			"tenant_id":  tenantID,
+		},
+	}
+	return task.ID, s.publish(ctx, QueueRights, task)
+}
+
 // DispatchReportGeneration enqueues a report generation task.
 func (s *WorkerService) DispatchReportGeneration(ctx context.Context, reportID, tenantID string) error {
 	task := &celeryTask{

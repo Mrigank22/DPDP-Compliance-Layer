@@ -94,6 +94,8 @@ CREATE TABLE reports (
     file_size_bytes  BIGINT,
     generated_by     UUID        REFERENCES users(id) ON DELETE SET NULL,
     parameters       JSONB       NOT NULL DEFAULT '{}',
+    content          TEXT,                            -- JSON report body (served on download)
+    content_html     TEXT,                            -- rendered, print-ready HTML report
     created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -123,12 +125,20 @@ CREATE TABLE rights_requests (
     data_principal_email  TEXT        NOT NULL,
     data_principal_name   TEXT,
     status                TEXT        NOT NULL DEFAULT 'received'
-                                      CHECK (status IN ('received','in_progress','completed','rejected')),
+                                      CHECK (status IN ('received','in_progress','pending_approval','completed','rejected')),
     due_date              TIMESTAMPTZ NOT NULL,    -- 90 days from created_at per DPDP Act
     assigned_to           UUID        REFERENCES users(id) ON DELETE SET NULL,
     notes                 TEXT,
     response_data         JSONB,
     rejection_reason      TEXT,
+    verified_at            TIMESTAMPTZ,                 -- DSR fulfillment workflow
+    verification_method    TEXT,
+    verified_by            UUID        REFERENCES users(id) ON DELETE SET NULL,
+    discovery_completed_at TIMESTAMPTZ,
+    approved_by            UUID        REFERENCES users(id) ON DELETE SET NULL,
+    approved_at            TIMESTAMPTZ,
+    erasure_plan           JSONB,
+    fulfillment_result     JSONB,
     created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

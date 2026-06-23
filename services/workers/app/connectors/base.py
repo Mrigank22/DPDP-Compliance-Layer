@@ -63,6 +63,17 @@ class BaseConnector(abc.ABC):
         """
         return None
 
+    def erase_records(self, source_name: str, term: str, max_deletes: int = 100000) -> int | None:
+        """
+        Optionally delete records matching ``term`` in the data source (e.g. a
+        data-principal identifier) and return the number of rows removed.
+
+        Returns ``None`` when the connector cannot erase natively (e.g. object
+        stores), signalling the caller to handle erasure manually. Implementations
+        MUST cap deletions at ``max_deletes`` and commit atomically.
+        """
+        return None
+
     def posture_check(self) -> list[PostureFinding]:
         """
         Return security misconfigurations for this asset. Connectors that can
