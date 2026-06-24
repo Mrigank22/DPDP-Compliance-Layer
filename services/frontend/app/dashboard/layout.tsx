@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { useAuthStore } from "@/lib/store/auth.store";
+import { canAccessPath, minRoleForPath, roleOf } from "@/lib/auth/permissions";
+import { NoAccess } from "@/components/auth/can";
 import { AppBackground } from "@/components/layout/app-background";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Topbar } from "@/components/layout/topbar";
@@ -15,7 +17,8 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const router = useRouter();
-  const { isAuthenticated, hydrated, loadFromStorage } = useAuthStore();
+  const pathname = usePathname();
+  const { isAuthenticated, hydrated, loadFromStorage, user } = useAuthStore();
 
   useEffect(() => {
     loadFromStorage();
@@ -39,6 +42,8 @@ export default function DashboardLayout({
     );
   }
 
+  const allowed = canAccessPath(roleOf(user), pathname);
+
   return (
     <div className="min-h-screen">
       <AppBackground />
@@ -47,7 +52,9 @@ export default function DashboardLayout({
       <div className="flex min-h-screen flex-col lg:pl-64">
         <Topbar />
         <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">
-          <div className="mx-auto w-full max-w-[1400px]">{children}</div>
+          <div className="mx-auto w-full max-w-[1400px]">
+            {allowed ? children : <NoAccess min={minRoleForPath(pathname)} />}
+          </div>
         </main>
       </div>
     </div>

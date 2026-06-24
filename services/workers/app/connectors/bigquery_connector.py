@@ -126,6 +126,32 @@ class BigQueryConnector(BaseConnector):
             return int(r["n"])
         return 0
 
+    def profile_columns(self, source_name: str) -> dict[str, dict[str, int]] | None:
+        """Full-coverage structured-PII detection pushed down to BigQuery (REGEXP_CONTAINS)."""
+        from app.pii.structured_patterns import build_profile_selects, map_profile_row, quote_lit
+
+        source = next((s for s in self.list_sources() if s["name"] == source_name), None)
+        if source is None:
+            return None
+        cols = [c["name"] for c in source.get("columns", [])]
+        if not cols:
+            return None
+
+        table_ref = f"{self._project()}.{self._dataset()}.{source_name}"
+        selects, meta = build_profile_selects(
+            cols, lambda c, p: f"REGEXP_CONTAINS(CAST(`{c}` AS STRING), {quote_lit(p)})"
+        )
+        if not selects:
+            return None
+
+        sql = f"SELECT {selects} FROM `{table_ref}`"
+        rows = list(self._get_client().query(sql).result())
+        if not rows:
+            return {}
+        row = rows[0]
+        values = [row[i] for i in range(len(meta))]
+        return map_profile_row(meta, values)
+
     def close(self) -> None:
         if self._client is not None:
             try:

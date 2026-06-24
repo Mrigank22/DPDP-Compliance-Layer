@@ -265,6 +265,34 @@ class MySQLConnector(BaseConnector):
 
         return findings
 
+    def profile_columns(self, source_name: str) -> dict[str, dict[str, int]] | None:
+        """Full-coverage structured-PII detection pushed down to MySQL via REGEXP."""
+        import pymysql.cursors
+
+        from app.pii.structured_patterns import build_profile_selects, map_profile_row, quote_lit
+
+        db = self._database()
+        source = next((s for s in self.list_sources() if s["name"] == source_name), None)
+        if source is None:
+            return None
+        cols = [c["name"] for c in source.get("columns", [])]
+        if not cols:
+            return None
+
+        selects, meta = build_profile_selects(
+            cols, lambda c, p: f"CAST({_bq(c)} AS CHAR) REGEXP {quote_lit(p)}"
+        )
+        if not selects:
+            return None
+
+        sql = f"SELECT {selects} FROM {_bq(db)}.{_bq(source_name)}"
+        with self._get_conn().cursor(pymysql.cursors.Cursor) as cur:
+            cur.execute(sql)
+            row = cur.fetchone()
+        if row is None:
+            return {}
+        return map_profile_row(meta, list(row))
+
     def close(self) -> None:
         if self._conn is not None and self._conn.open:
             self._conn.close()

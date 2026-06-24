@@ -1,0 +1,26 @@
+# services/observability/prometheus.yml
+# Scrape config for the DataSentinel stack. Targets use host.docker.internal so
+# Prometheus (in a container) can reach services running on the host.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: control-plane
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["host.docker.internal:3001"]
+        labels:
+          service: control-plane
+
+  - job_name: gateway
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["host.docker.internal:8080"]
+        labels:
+          service: gateway
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

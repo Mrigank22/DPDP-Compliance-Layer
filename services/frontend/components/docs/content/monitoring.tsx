@@ -44,8 +44,12 @@ export default function Monitoring() {
         head={["Signal", "Where"]}
         rows={[
           [
-            "Prometheus metrics",
-            "The gateway exposes /metrics (requests, PII detections, blocks, LLM calls, latency, uptime) for scraping into Grafana.",
+            "Control-plane metrics",
+            "The API exposes /metrics with http_requests_total and http_request_duration_seconds (labelled by method, route and status) plus Go runtime metrics.",
+          ],
+          [
+            "Gateway metrics",
+            "The gateway exposes /metrics (requests, PII detections, blocks, LLM calls, latency, uptime).",
           ],
           [
             "Health endpoints",
@@ -57,6 +61,13 @@ export default function Monitoring() {
           ],
         ]}
       />
+
+      <p>
+        A ready-to-run stack lives under <code>services/observability</code>:
+        <code> docker compose up</code> starts Prometheus (pre-configured to scrape
+        both services) and Grafana with a provisioned datasource and an overview
+        dashboard — request rate, p95 latency, error rate and gateway activity.
+      </p>
 
       <Callout variant="tip" title="Leading indicators">
         Watch for gateway block-rate spikes, sudden bulk-export findings, rising

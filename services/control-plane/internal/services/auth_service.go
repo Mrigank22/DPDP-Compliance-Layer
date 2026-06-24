@@ -355,6 +355,13 @@ func (s *AuthService) issueTokenPair(ctx context.Context, db bun.IDB, user *mode
 	}, nil
 }
 
+// IssueSession issues an access + refresh token pair for an already-authenticated
+// user (e.g. after a successful SSO login). Exposed so the SSO service can mint a
+// DataSentinel session without going through password auth.
+func (s *AuthService) IssueSession(ctx context.Context, user *models.User) (*models.AuthTokenResponse, error) {
+	return s.issueTokenPair(ctx, s.pg, user, user.TenantID)
+}
+
 // ValidateAccessToken parses and validates an RS256 JWT, returning the claims.
 func (s *AuthService) ValidateAccessToken(tokenStr string) (*DataSentinelClaims, error) {
 	token, err := jwt.ParseWithClaims(tokenStr, &DataSentinelClaims{}, func(t *jwt.Token) (interface{}, error) {

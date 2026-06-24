@@ -80,6 +80,7 @@ export const REPORT_TYPE_LABELS: Record<string, string> = {
   incident_report: "Incident Report",
   dpia: "DPIA",
   audit_evidence: "Audit Evidence",
+  ai_governance: "AI Governance",
 };
 
 export const ALERT_TYPE_LABELS: Record<string, string> = {

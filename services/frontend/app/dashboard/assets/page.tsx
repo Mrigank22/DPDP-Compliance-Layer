@@ -28,6 +28,7 @@ import { ASSET_TYPES, PROVIDERS, ASSET_STATUSES } from "@/types/api";
 import { getApiErrorMessage } from "@/lib/api-client";
 import { toast } from "@/lib/store/toast.store";
 import { PageHeader, Panel } from "@/components/common/panel";
+import { Can } from "@/components/auth/can";
 import { DataTable, THead, TH, TBody, TR, TD } from "@/components/common/table";
 import { TableSkeleton, EmptyState, ErrorState, LoadingPanel } from "@/components/common/states";
 import { StatusPill, RiskScore } from "@/components/common/indicators";
@@ -301,9 +302,11 @@ function AssetsContent() {
         description="Cloud and on-prem data sources under continuous discovery."
         icon={<Database className="h-5 w-5" />}
         actions={
-          <Button onClick={() => setConnectOpen(true)}>
-            <Plus className="h-4 w-4" /> Connect Asset
-          </Button>
+          <Can min="admin">
+            <Button onClick={() => setConnectOpen(true)}>
+              <Plus className="h-4 w-4" /> Connect Asset
+            </Button>
+          </Can>
         }
       />
 

@@ -29,6 +29,7 @@ REPORT_TYPE_LABELS = {
     "incident_report":   "Data Incident Report",
     "dpia":              "Data Protection Impact Assessment",
     "audit_evidence":    "Audit Evidence Pack",
+    "ai_governance":     "AI Governance Report",
 }
 
 REPORT_TYPE_TAGLINE = {
@@ -38,6 +39,7 @@ REPORT_TYPE_TAGLINE = {
     "incident_report":   "Detection, exposure and response record for a data incident",
     "dpia":              "Assessment of risks to data principals under the DPDP Act / Article 35 GDPR",
     "audit_evidence":    "Bundled evidence of controls, scans, rights handling and consent",
+    "ai_governance":     "AI system inventory, framework risk posture and oversight evidence",
 }
 
 # Print-legible variants of the product severity spectrum.
@@ -616,6 +618,76 @@ def _body_audit(c: dict) -> str:
     return "".join(parts)
 
 
+def _body_ai_governance(c: dict) -> str:
+    ov = c.get("ai_overview", {}) or {}
+    systems = c.get("ai_systems", []) or []
+    models = c.get("ai_models", []) or []
+    readiness = c.get("framework_readiness", {}) or {}
+
+    sys_rows = [
+        [
+            esc(s.get("name")),
+            _status_pill(s.get("lifecycle_stage", "")),
+            esc(humanize(s.get("risk_tier"))),
+            _risk_badge(s.get("inherent", 0)),
+            f'{int(s.get("readiness", 0))}%',
+            _risk_badge(s.get("residual", 0)),
+            _num(s.get("frameworks_assessed", 0)),
+        ]
+        for s in systems
+    ]
+    model_rows = [
+        [esc(m.get("model")), esc(humanize(m.get("provider"))), esc(humanize(m.get("source"))), _num(m.get("call_count", 0))]
+        for m in models
+    ]
+    read_rows = [(k, int(v), BRAND) for k, v in readiness.items()]
+
+    parts = [
+        _section(
+            "AI governance overview",
+            _callout(
+                f"Inventory and risk posture of AI systems for <strong>{esc(c.get('organisation'))}</strong> "
+                f"as of <strong>{esc(_short_date(c.get('generated_at')))}</strong>.",
+                tone="info",
+            )
+            + _kpi_grid([
+                _kpi("AI systems", _num(ov.get("total_systems", 0))),
+                _kpi("Approved", _num(ov.get("approved", 0)), accent=True),
+                _kpi("Assessed", _num(ov.get("assessed", 0))),
+                _kpi("High residual risk", _num(ov.get("high_risk", 0)),
+                     tone="critical" if ov.get("high_risk") else None),
+            ]),
+        ),
+        _section(
+            "AI systems & residual risk",
+            _table(
+                ["System", "Stage", "Risk tier", "Inherent", "Readiness", "Residual", "Frameworks"],
+                sys_rows,
+                ["left", "left", "left", "right", "right", "right", "right"],
+                empty="No AI systems registered.",
+            ),
+            subtitle="Residual risk is the inherent (tier) risk after applying assessed control readiness.",
+            page_break=True,
+        ),
+        _section(
+            "Framework readiness",
+            _bars(read_rows, unit="%") if read_rows else '<p class="empty">No assessments completed.</p>',
+            subtitle="Average control readiness across assessed systems, by framework.",
+        ),
+        _section(
+            "Model catalogue",
+            _table(
+                ["Model", "Provider", "Source", "Calls"],
+                model_rows,
+                ["left", "left", "left", "right"],
+                empty="No models catalogued.",
+            ),
+        ),
+        _attestation(c),
+    ]
+    return "".join(parts)
+
+
 def _attestation(c: dict) -> str:
     return _section(
         "Attestation",
@@ -645,6 +717,7 @@ _BODIES = {
     "incident_report":   _body_incident,
     "dpia":              _body_dpia,
     "audit_evidence":    _body_audit,
+    "ai_governance":     _body_ai_governance,
 }
 
 

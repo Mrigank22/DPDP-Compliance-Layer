@@ -5,6 +5,8 @@ import {
   Cards,
   Card,
   Table,
+  Steps,
+  Step,
   DocLink,
 } from "@/components/docs/primitives";
 import { Lock, Users } from "lucide-react";
@@ -43,8 +45,15 @@ export default function Security() {
           ["Viewer", "Read-only across the product (except secrets like API keys)."],
         ]}
       />
+      <p>
+        Access is enforced on every request by the API and again at the page level
+        in the console: roles below the required level never see a restricted page
+        or its actions. Team management, settings and the audit trail require Admin;
+        rights and consent (which touch data-principal data) require Analyst or
+        above.
+      </p>
 
-      <H2 id="auth">Authentication &amp; audit</H2>
+      <H2 id="auth">Authentication &amp; SSO</H2>
       <ul>
         <li>
           <strong>RS256 JWTs</strong> with short-lived access tokens and rotating
@@ -55,10 +64,29 @@ export default function Security() {
           lock after repeated failed logins.
         </li>
         <li>
-          Every privileged action is written to an <strong>immutable audit log</strong>{" "}
-          retained for years.
+          <strong>Enterprise SSO</strong> via OpenID Connect and automated user
+          provisioning via SCIM 2.0 — see{" "}
+          <DocLink href="/docs/sso-scim">SSO &amp; SCIM</DocLink>.
         </li>
       </ul>
+
+      <H2 id="audit">Tamper-evident audit log</H2>
+      <p>
+        Every privileged action is written to an immutable audit log retained for
+        years. Each event is also appended to a per-tenant <strong>hash chain</strong>:
+        an entry’s hash covers the previous entry’s hash plus its own contents, so
+        altering, inserting or removing any past record breaks the chain.
+      </p>
+      <Steps>
+        <Step title="Open the Audit Trail">
+          Go to <strong>Audit</strong> in the console (Admin only).
+        </Step>
+        <Step title="Verify integrity">
+          Select <strong>Verify integrity</strong>. DataSentinel recomputes the
+          entire chain and reports whether it is intact — and, if not, the exact
+          entry where tampering was detected.
+        </Step>
+      </Steps>
 
       <Callout variant="note" title="Data sovereignty">
         Defaults target the <code>ap-south-1</code> (Mumbai) region, and

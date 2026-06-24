@@ -197,7 +197,7 @@ func (s *GatewayService) ApproveDataFlow(ctx context.Context, id, tenantID, user
 	_, err := s.pg.NewUpdate().Model(flow).
 		Set("is_approved = true").
 		Set("approved_by = ?", userID).
-		Where("id = ?", id).Exec(ctx)
+		Where("id = ? AND tenant_id = ?", id, tenantID).Exec(ctx)
 	if err != nil {
 		return nil, err
 	}

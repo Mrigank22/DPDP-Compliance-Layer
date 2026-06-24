@@ -17,6 +17,7 @@ import { REPORT_TYPES } from "@/types/api";
 import { getApiErrorMessage } from "@/lib/api-client";
 import { toast } from "@/lib/store/toast.store";
 import { PageHeader, Panel } from "@/components/common/panel";
+import { Can } from "@/components/auth/can";
 import { DataTable, THead, TH, TBody, TR, TD } from "@/components/common/table";
 import { TableSkeleton, EmptyState, ErrorState, LoadingPanel } from "@/components/common/states";
 import { StatusPill } from "@/components/common/indicators";
@@ -203,9 +204,11 @@ function ReportsContent() {
         description="Audit-ready DPDP, DPIA and incident evidence packs for regulators and boards."
         icon={<FileBarChart className="h-5 w-5" />}
         actions={
-          <Button onClick={() => setGenOpen(true)}>
-            <Plus className="h-4 w-4" /> Generate Report
-          </Button>
+          <Can min="analyst">
+            <Button onClick={() => setGenOpen(true)}>
+              <Plus className="h-4 w-4" /> Generate Report
+            </Button>
+          </Can>
         }
       />
 

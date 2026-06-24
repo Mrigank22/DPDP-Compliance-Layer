@@ -8,12 +8,57 @@ import {
   User,
 } from "@/types/api";
 
+export interface SSOConnection {
+  enabled: boolean;
+  provider: string;
+  issuer_url: string;
+  client_id: string;
+  client_secret_set: boolean;
+  email_domains: string[];
+  default_role: "admin" | "analyst" | "viewer";
+  auto_provision: boolean;
+  scim_enabled: boolean;
+  scim_token_set: boolean;
+}
+
+export interface UpsertSSOInput {
+  enabled: boolean;
+  issuer_url: string;
+  client_id: string;
+  /** Omit to keep the stored secret unchanged. */
+  client_secret?: string;
+  email_domains: string[];
+  default_role: "admin" | "analyst" | "viewer";
+  auto_provision: boolean;
+}
+
 export const authAPI = {
   register: (data: RegisterInput) =>
     apiClient.post<AuthTokenResponse>("/auth/register", data),
 
   login: (data: LoginInput) =>
     apiClient.post<AuthTokenResponse>("/auth/login", data),
+
+  // ---- Enterprise SSO (OIDC) ----
+  ssoStart: (email: string) =>
+    apiClient.post<{ authorization_url: string }>("/auth/sso/start", { email }),
+
+  ssoExchange: (code: string) =>
+    apiClient.post<AuthTokenResponse>("/auth/sso/exchange", { code }),
+
+  getSSO: () => apiClient.get<SSOConnection>("/sso/connection"),
+
+  updateSSO: (data: UpsertSSOInput) =>
+    apiClient.put<SSOConnection>("/sso/connection", data),
+
+  deleteSSO: () => apiClient.delete<{ message: string }>("/sso/connection"),
+
+  // ---- SCIM provisioning token (shown once on generation) ----
+  generateScimToken: () =>
+    apiClient.post<{ token: string }>("/sso/scim-token"),
+
+  revokeScimToken: () =>
+    apiClient.delete<{ message: string }>("/sso/scim-token"),
 
   refresh: (refreshToken: string) =>
     apiClient.post<AuthTokenResponse>("/auth/refresh", { refresh_token: refreshToken }),

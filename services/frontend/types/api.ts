@@ -92,6 +92,7 @@ export const REPORT_TYPES = [
   "incident_report",
   "dpia",
   "audit_evidence",
+  "ai_governance",
 ] as const;
 
 export const REPORT_STATUSES = ["generating", "ready", "failed"] as const;

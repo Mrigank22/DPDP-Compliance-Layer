@@ -35,6 +35,7 @@ import { cn } from "@/lib/cn";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { IntegrationsTab } from "@/components/settings/integrations-tab";
 import { DetectionTab } from "@/components/settings/detection-tab";
+import { SSOTab } from "@/components/settings/sso-tab";
 import {
   Dialog,
   DialogContent,
@@ -483,12 +484,14 @@ export default function SettingsPage() {
           <TabsTrigger value="team"><Users className="h-4 w-4" /> Team</TabsTrigger>
           <TabsTrigger value="apikeys"><KeyRound className="h-4 w-4" /> API Keys</TabsTrigger>
           <TabsTrigger value="detection"><ScanSearch className="h-4 w-4" /> Detection</TabsTrigger>
+          <TabsTrigger value="sso"><ShieldCheck className="h-4 w-4" /> SSO</TabsTrigger>
           <TabsTrigger value="integrations"><Plug className="h-4 w-4" /> Integrations</TabsTrigger>
         </TabsList>
         <TabsContent value="profile"><ProfileTab /></TabsContent>
         <TabsContent value="team"><TeamTab /></TabsContent>
         <TabsContent value="apikeys"><ApiKeysTab /></TabsContent>
         <TabsContent value="detection"><DetectionTab /></TabsContent>
+        <TabsContent value="sso"><SSOTab /></TabsContent>
         <TabsContent value="integrations"><IntegrationsTab /></TabsContent>
       </Tabs>
     </div>

@@ -48,6 +48,8 @@ CREATE POLICY tenant_isolation ON policies
 CREATE TABLE policy_versions (
     id             UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
     policy_id      UUID        NOT NULL REFERENCES policies(id) ON DELETE CASCADE,
+    -- Denormalized for direct RLS enforcement (avoids a join back to policies).
+    tenant_id      UUID        REFERENCES tenants(id) ON DELETE CASCADE,
     version        INTEGER     NOT NULL,
     rules          JSONB       NOT NULL,
     changed_by     UUID        REFERENCES users(id) ON DELETE SET NULL,
@@ -57,13 +59,9 @@ CREATE TABLE policy_versions (
 );
 
 CREATE INDEX idx_policy_versions_policy_id ON policy_versions (policy_id);
+CREATE INDEX idx_policy_versions_tenant_id ON policy_versions (tenant_id);
 
 ALTER TABLE policy_versions ENABLE ROW LEVEL SECURITY;
-
--- policy_versions inherits tenant isolation via join to policies;
--- add a denormalized tenant_id for direct RLS enforcement
-ALTER TABLE policy_versions ADD COLUMN tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE;
-CREATE INDEX idx_policy_versions_tenant_id ON policy_versions (tenant_id);
 
 CREATE POLICY tenant_isolation ON policy_versions
     USING (tenant_id = current_setting('app.current_tenant_id', true)::uuid

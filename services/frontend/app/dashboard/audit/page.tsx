@@ -1,16 +1,18 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { ScrollText, Search, Filter, Code2 } from "lucide-react";
-import { auditAPI } from "@/lib/api/audit";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { ScrollText, Search, Filter, Code2, ShieldCheck, ShieldAlert } from "lucide-react";
+import { auditAPI, type AuditVerifyResult } from "@/lib/api/audit";
 import type { AuditLog, AuditLogFilter } from "@/types/api";
 import { getApiErrorMessage } from "@/lib/api-client";
+import { toast } from "@/lib/store/toast.store";
 import { PageHeader, Panel } from "@/components/common/panel";
 import { DataTable, THead, TH, TBody, TR, TD } from "@/components/common/table";
 import { TableSkeleton, EmptyState, ErrorState } from "@/components/common/states";
 import { Pager } from "@/components/common/pager";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Dialog,
@@ -35,6 +37,20 @@ export default function AuditPage() {
   const [action, setAction] = useState("");
   const [resource, setResource] = useState("");
   const [selected, setSelected] = useState<AuditLog | null>(null);
+  const [verifyResult, setVerifyResult] = useState<AuditVerifyResult | null>(null);
+
+  const verify = useMutation({
+    mutationFn: () => auditAPI.verify().then((r) => r.data),
+    onSuccess: (data) => {
+      setVerifyResult(data);
+      if (data.valid) {
+        toast.success("Audit log verified", `${data.entries} entries — no tampering detected.`);
+      } else {
+        toast.error("Integrity check failed", data.message);
+      }
+    },
+    onError: (e) => toast.error("Could not verify audit log", getApiErrorMessage(e)),
+  });
 
   const filters: AuditLogFilter = useMemo(
     () => ({
@@ -60,7 +76,38 @@ export default function AuditPage() {
         title="Audit Trail"
         description="Every privileged action across the workspace — immutable, regulator-ready evidence."
         icon={<ScrollText className="h-5 w-5" />}
+        actions={
+          <Button variant="secondary" onClick={() => verify.mutate()} disabled={verify.isPending}>
+            <ShieldCheck className="h-4 w-4" />
+            {verify.isPending ? "Verifying…" : "Verify integrity"}
+          </Button>
+        }
       />
+
+      {verifyResult && (
+        <div
+          className={`flex items-start gap-3 rounded-lg border p-3 text-sm ${
+            verifyResult.valid
+              ? "border-success/30 bg-success/10 text-success"
+              : "border-critical/30 bg-critical/10 text-critical"
+          }`}
+        >
+          {verifyResult.valid ? (
+            <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" />
+          ) : (
+            <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
+          )}
+          <div>
+            <p className="font-medium">
+              {verifyResult.valid ? "Chain intact" : "Tampering detected"}
+            </p>
+            <p className="text-xs opacity-90">
+              {verifyResult.message} · {verifyResult.entries} chained entries
+              {verifyResult.broken_at_seq != null && ` · first break at #${verifyResult.broken_at_seq}`}
+            </p>
+          </div>
+        </div>
+      )}
 
       <Panel
         title="Activity Log"

@@ -10,12 +10,14 @@ import Findings from "@/components/docs/content/findings";
 import Policies from "@/components/docs/content/policies";
 import Gateway from "@/components/docs/content/gateway";
 import LlmGuard from "@/components/docs/content/llm-guard";
+import AIGovernance from "@/components/docs/content/ai-governance";
 import Rights from "@/components/docs/content/rights";
 import Consent from "@/components/docs/content/consent";
 import Reports from "@/components/docs/content/reports";
 import ApiKeys from "@/components/docs/content/api-keys";
 import ApiReference from "@/components/docs/content/api-reference";
 import AlertsWebhooks from "@/components/docs/content/alerts-webhooks";
+import SsoScim from "@/components/docs/content/sso-scim";
 import Monitoring from "@/components/docs/content/monitoring";
 import Security from "@/components/docs/content/security";
 import Deployment from "@/components/docs/content/deployment";
@@ -37,12 +39,14 @@ export const DOC_COMPONENTS: Record<string, ComponentType> = {
   policies: Policies,
   gateway: Gateway,
   "llm-guard": LlmGuard,
+  "ai-governance": AIGovernance,
   rights: Rights,
   consent: Consent,
   reports: Reports,
   "api-keys": ApiKeys,
   "api-reference": ApiReference,
   "alerts-webhooks": AlertsWebhooks,
+  "sso-scim": SsoScim,
   monitoring: Monitoring,
   security: Security,
   deployment: Deployment,

@@ -89,7 +89,7 @@ class PIIAnalyzer:
         self._custom = custom_detectors or []
         self._ignore = ignore_patterns or []
 
-    def analyze_text(self, text: str, field_name: str = "text") -> list[PIIMatch]:
+    def analyze_text(self, text: str, field_name: str = "text", entities: list[str] | None = None) -> list[PIIMatch]:
         if not text or not text.strip():
             return []
 
@@ -103,7 +103,7 @@ class PIIAnalyzer:
             try:
                 results = self._engine.analyze(
                     text=text,
-                    entities=ENTITIES,
+                    entities=entities or ENTITIES,
                     language="en",
                     score_threshold=self._threshold,
                 )
@@ -145,14 +145,14 @@ class PIIAnalyzer:
 
         return matches
 
-    def analyze_record(self, record: dict[str, Any], record_id: Any = None) -> RecordAnalysis:
+    def analyze_record(self, record: dict[str, Any], record_id: Any = None, entities: list[str] | None = None) -> RecordAnalysis:
         analysis = RecordAnalysis(record_id=record_id)
-        self._walk(record, "", analysis)
+        self._walk(record, "", analysis, entities)
         analysis.has_pii = bool(analysis.matches)
         return analysis
 
-    def analyze_batch(self, records: list[dict[str, Any]], id_field: str = "id") -> list[RecordAnalysis]:
-        return [self.analyze_record(r, record_id=r.get(id_field)) for r in records]
+    def analyze_batch(self, records: list[dict[str, Any]], id_field: str = "id", entities: list[str] | None = None) -> list[RecordAnalysis]:
+        return [self.analyze_record(r, record_id=r.get(id_field), entities=entities) for r in records]
 
     def pii_summary(self, analyses: list[RecordAnalysis]) -> dict[str, int]:
         counts: dict[str, int] = {}
@@ -161,18 +161,18 @@ class PIIAnalyzer:
                 counts[m.pii_type] = counts.get(m.pii_type, 0) + 1
         return counts
 
-    def _walk(self, node: Any, path: str, analysis: RecordAnalysis) -> None:
+    def _walk(self, node: Any, path: str, analysis: RecordAnalysis, entities: list[str] | None = None) -> None:
         if isinstance(node, dict):
             for key, val in node.items():
                 child = f"{path}.{key}" if path else key
-                self._walk(val, child, analysis)
+                self._walk(val, child, analysis, entities)
         elif isinstance(node, list):
             for item in node:
-                self._walk(item, path, analysis)
+                self._walk(item, path, analysis, entities)
         elif isinstance(node, str):
-            analysis.matches.extend(self.analyze_text(node, field_name=path))
+            analysis.matches.extend(self.analyze_text(node, field_name=path, entities=entities))
         elif isinstance(node, (int, float)):
-            analysis.matches.extend(self.analyze_text(str(node), field_name=path))
+            analysis.matches.extend(self.analyze_text(str(node), field_name=path, entities=entities))
 
 
 def _safe_sample(text: str) -> str:

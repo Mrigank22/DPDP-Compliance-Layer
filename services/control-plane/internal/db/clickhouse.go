@@ -18,10 +18,21 @@ import (
 
 // ClickHouseClient wraps the ClickHouse connection and provides typed write methods.
 type ClickHouseClient struct {
-	conn *sql.DB
-	db   string
-	log  *zap.Logger
+	conn  *sql.DB
+	db    string
+	log   *zap.Logger
+	chain AuditChainAppender
 }
+
+// AuditChainAppender links an audit event into the tamper-evident ledger.
+// It is implemented by services.AuditChainService; defined here as an interface
+// so the db package stays free of an import cycle on services.
+type AuditChainAppender interface {
+	AppendAudit(ctx context.Context, entry *models.AuditLog) error
+}
+
+// SetChainAppender wires the tamper-evident audit ledger into the audit path.
+func (ch *ClickHouseClient) SetChainAppender(a AuditChainAppender) { ch.chain = a }
 
 // NewClickHouse opens a ClickHouse connection pool.
 func NewClickHouse(cfg *config.Config, log *zap.Logger) (*ClickHouseClient, error) {
@@ -74,6 +85,13 @@ func (ch *ClickHouseClient) WriteAuditLog(ctx context.Context, entry *models.Aud
 		ch.log.Error("clickhouse audit_log write failed", zap.Error(err))
 		return fmt.Errorf("clickhouse write audit_log: %w", err)
 	}
+
+	// Append to the tamper-evident ledger (best-effort; never blocks the audit write).
+	if ch.chain != nil {
+		if cerr := ch.chain.AppendAudit(ctx, entry); cerr != nil {
+			ch.log.Warn("audit chain append failed", zap.Error(cerr))
+		}
+	}
 	return nil
 }
 
@@ -83,15 +101,17 @@ func (ch *ClickHouseClient) WriteGatewayEvent(ctx context.Context, event *models
 		(id, tenant_id, gateway_rule_id, timestamp, request_id, source_ip,
 		 destination_url, http_method, action_taken, pii_types_detected,
 		 field_names, payload_size_bytes, processing_latency_ms,
-		 was_llm_call, llm_provider, policy_id)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		 was_llm_call, llm_provider, llm_model, ai_app, ai_user,
+		 prompt_tokens, completion_tokens, total_tokens, policy_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	_, err := ch.conn.ExecContext(ctx, query,
 		event.ID, event.TenantID, event.GatewayRuleID, event.Timestamp,
 		event.RequestID, event.SourceIP, event.DestinationURL, event.HTTPMethod,
 		event.ActionTaken, event.PIITypesDetected, event.FieldNames,
 		event.PayloadSizeBytes, event.ProcessingLatencyMs,
-		event.WasLLMCall, event.LLMProvider, event.PolicyID,
+		event.WasLLMCall, event.LLMProvider, event.LLMModel, event.AIApp, event.AIUser,
+		event.PromptTokens, event.CompletionTokens, event.TotalTokens, event.PolicyID,
 	)
 	if err != nil {
 		ch.log.Error("clickhouse gateway_event write failed", zap.Error(err))
@@ -214,7 +234,8 @@ func (ch *ClickHouseClient) QueryGatewayEvents(ctx context.Context, tenantID str
 
 	dataQuery := `SELECT id, tenant_id, gateway_rule_id, timestamp, request_id, source_ip,
 		destination_url, http_method, action_taken, pii_types_detected, field_names,
-		payload_size_bytes, processing_latency_ms, was_llm_call, llm_provider, policy_id
+		payload_size_bytes, processing_latency_ms, was_llm_call, llm_provider,
+		llm_model, ai_app, ai_user, prompt_tokens, completion_tokens, total_tokens, policy_id
 		FROM gateway_events ` + where +
 		fmt.Sprintf(" ORDER BY timestamp DESC LIMIT %d OFFSET %d", filter.PageSize, offset)
 
@@ -230,7 +251,8 @@ func (ch *ClickHouseClient) QueryGatewayEvents(ctx context.Context, tenantID str
 		if err := rows.Scan(
 			&e.ID, &e.TenantID, &e.GatewayRuleID, &e.Timestamp, &e.RequestID, &e.SourceIP,
 			&e.DestinationURL, &e.HTTPMethod, &e.ActionTaken, &e.PIITypesDetected, &e.FieldNames,
-			&e.PayloadSizeBytes, &e.ProcessingLatencyMs, &e.WasLLMCall, &e.LLMProvider, &e.PolicyID,
+			&e.PayloadSizeBytes, &e.ProcessingLatencyMs, &e.WasLLMCall, &e.LLMProvider,
+			&e.LLMModel, &e.AIApp, &e.AIUser, &e.PromptTokens, &e.CompletionTokens, &e.TotalTokens, &e.PolicyID,
 		); err != nil {
 			return nil, 0, fmt.Errorf("clickhouse scan gateway_event: %w", err)
 		}
@@ -325,6 +347,122 @@ func (ch *ClickHouseClient) QueryGatewayStats(ctx context.Context, tenantID stri
 	}
 
 	return resp, nil
+}
+
+// QueryAIDiscovery aggregates LLM gateway traffic into per-(provider, model, app)
+// usage rows over the last N hours, powering the AI inventory / shadow-AI view.
+func (ch *ClickHouseClient) QueryAIDiscovery(ctx context.Context, tenantID string, hours int) ([]*models.AIDiscoveryRow, error) {
+	if hours < 1 || hours > 8760 {
+		hours = 720 // default 30 days
+	}
+	cutoff := time.Now().Add(-time.Duration(hours) * time.Hour)
+
+	rows, err := ch.conn.QueryContext(ctx, `
+		SELECT
+			llm_provider,
+			llm_model,
+			ai_app,
+			any(destination_url)                      AS destination_url,
+			count()                                   AS call_count,
+			countIf(length(pii_types_detected) > 0)   AS pii_calls,
+			uniqExact(source_ip)                      AS source_count,
+			groupUniqArrayArray(pii_types_detected)   AS pii_types,
+			min(timestamp)                            AS first_seen,
+			max(timestamp)                            AS last_seen
+		FROM gateway_events
+		WHERE tenant_id = ? AND was_llm_call AND timestamp >= ?
+		GROUP BY llm_provider, llm_model, ai_app
+		ORDER BY call_count DESC
+		LIMIT 500`,
+		tenantID, cutoff,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("clickhouse ai discovery: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]*models.AIDiscoveryRow, 0)
+	for rows.Next() {
+		r := &models.AIDiscoveryRow{}
+		if err := rows.Scan(
+			&r.Provider, &r.Model, &r.App, &r.DestinationURL,
+			&r.CallCount, &r.PIICallCount, &r.SourceCount, &r.PIITypes,
+			&r.FirstSeen, &r.LastSeen,
+		); err != nil {
+			return nil, fmt.Errorf("clickhouse scan ai discovery: %w", err)
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// QueryAIUsage aggregates LLM token usage over the last N hours: per-(provider,
+// model, app) groups plus a daily timeline. Cost is applied by the caller.
+func (ch *ClickHouseClient) QueryAIUsage(ctx context.Context, tenantID string, hours int) ([]*models.AIUsageGroupRow, []models.AIUsageTimeBin, error) {
+	if hours < 1 || hours > 8760 {
+		hours = 720
+	}
+	cutoff := time.Now().Add(-time.Duration(hours) * time.Hour)
+
+	groupRows, err := ch.conn.QueryContext(ctx, `
+		SELECT
+			llm_provider,
+			llm_model,
+			ai_app,
+			count()                AS calls,
+			sum(prompt_tokens)     AS pt,
+			sum(completion_tokens) AS ct,
+			sum(total_tokens)      AS tt
+		FROM gateway_events
+		WHERE tenant_id = ? AND was_llm_call AND timestamp >= ?
+		GROUP BY llm_provider, llm_model, ai_app
+		ORDER BY tt DESC
+		LIMIT 1000`,
+		tenantID, cutoff,
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("clickhouse ai usage groups: %w", err)
+	}
+	defer groupRows.Close()
+
+	groups := make([]*models.AIUsageGroupRow, 0)
+	for groupRows.Next() {
+		g := &models.AIUsageGroupRow{}
+		if err := groupRows.Scan(
+			&g.Provider, &g.Model, &g.App, &g.Calls,
+			&g.PromptTokens, &g.CompletionTokens, &g.TotalTokens,
+		); err != nil {
+			return nil, nil, fmt.Errorf("clickhouse scan ai usage group: %w", err)
+		}
+		groups = append(groups, g)
+	}
+	if err := groupRows.Err(); err != nil {
+		return nil, nil, err
+	}
+
+	// Daily timeline.
+	timeline := make([]models.AIUsageTimeBin, 0)
+	tlRows, err := ch.conn.QueryContext(ctx, `
+		SELECT toStartOfDay(timestamp) AS day, count() AS calls, sum(total_tokens) AS tt
+		FROM gateway_events
+		WHERE tenant_id = ? AND was_llm_call AND timestamp >= ?
+		GROUP BY day ORDER BY day ASC`,
+		tenantID, cutoff,
+	)
+	if err == nil {
+		defer tlRows.Close()
+		for tlRows.Next() {
+			var day time.Time
+			var calls, tt int64
+			if err := tlRows.Scan(&day, &calls, &tt); err == nil {
+				timeline = append(timeline, models.AIUsageTimeBin{
+					Date: day.Format("2006-01-02"), Calls: calls, TotalTokens: tt,
+				})
+			}
+		}
+	}
+
+	return groups, timeline, nil
 }
 
 func round2(f float64) float64 {

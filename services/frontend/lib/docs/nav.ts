@@ -96,6 +96,11 @@ export const DOC_NAV: DocGroup[] = [
         description: "Strip PII from prompts before they reach external models.",
       },
       {
+        slug: "ai-governance",
+        title: "AI governance",
+        description: "Inventory AI systems and surface unsanctioned shadow AI.",
+      },
+      {
         slug: "rights",
         title: "Data-principal rights",
         description: "Handle DSRs against the 90-day DPDP deadline.",
@@ -116,6 +121,11 @@ export const DOC_NAV: DocGroup[] = [
     title: "Integrations & API",
     icon: PlugZap,
     items: [
+      {
+        slug: "sso-scim",
+        title: "SSO & SCIM",
+        description: "Connect your IdP for single sign-on and automatic user provisioning.",
+      },
       {
         slug: "api-keys",
         title: "API keys",

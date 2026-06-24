@@ -145,6 +145,7 @@ func (s *ReportService) GetTemplates() []map[string]any {
 		{"id": "incident_report", "name": "Incident Report", "description": "Detailed documentation of a specific data incident or breach for regulatory notification."},
 		{"id": "dpia", "name": "Data Protection Impact Assessment (DPIA)", "description": "Structured DPIA template pre-populated with detected PII flows and risk factors."},
 		{"id": "audit_evidence", "name": "Audit Evidence Pack", "description": "Full audit trail export with policy history, scan results, and user activity logs."},
+		{"id": "ai_governance", "name": "AI Governance Report", "description": "AI system inventory, framework risk posture (NIST AI RMF / EU AI Act / ISO 42001 / DPDP), model catalogue and oversight evidence."},
 	}
 }
 

@@ -16,10 +16,16 @@ from app.config import settings
 from app.connectors.base import get_connector
 from app.db.client import get_db
 from app.db.models import Asset, Finding, Scan
-from app.pii.analyzer import PIIAnalyzer
+from app.pii.analyzer import ENTITIES, PIIAnalyzer
 from app.pii.settings_loader import DetectionConfig, load_detection_config
+from app.pii.structured_patterns import STRUCTURED_PATTERNS
 
 logger = logging.getLogger(__name__)
+
+# Entity types handled by the in-database structured pushdown. The sampled
+# Python pass excludes these and runs NER only (names, locations, free text),
+# avoiding redundant work once the database has full-coverage counts for them.
+NER_ENTITIES = [e for e in ENTITIES if e not in STRUCTURED_PATTERNS]
 
 _analyzer: PIIAnalyzer | None = None
 
@@ -156,25 +162,66 @@ def _execute_scan(
         sources = connector.list_sources()
         logger.info("Scan %s: %d sources in asset %s", scan_id, len(sources), asset.id)
 
+        # (a) Row-based sources are sampled to a fixed cap so huge tables aren't
+        # fully streamed and re-classified on every scan. A "full" scan disables
+        # the cap for deterministic deep coverage. Object stores keep their own
+        # per-object caps (RECORD_SAMPLING = False).
+        record_sampling = getattr(connector, "RECORD_SAMPLING", True)
+        row_cap = settings.max_sample_size if (record_sampling and scan_type != "full") else None
+
         for source in sources:
             source_name = source["name"]
             source_pii: dict[str, int] = {}
+            full_coverage: set[str] = set()
+
+            # (b) In-database structured-PII profiling: regex-detectable identifiers
+            # (Aadhaar, PAN, email, phone, ...) are counted across ALL rows inside
+            # the warehouse in one read-only pass, giving full coverage cheaply and
+            # reserving Python + NER for free-text columns. Any failure falls back
+            # to the fully-sampled Python path so a scan never breaks.
+            profile = None
+            if settings.structured_pushdown_enabled:
+                try:
+                    profile = connector.profile_columns(source_name)
+                except Exception as exc:
+                    logger.warning(
+                        "Scan %s: pushdown profiling failed for %s, falling back to sampling: %s",
+                        scan_id, source_name, exc,
+                    )
+                    profile = None
+            pushed_down = profile is not None
+            if profile:
+                for _col, types in profile.items():
+                    for ptype, cnt in types.items():
+                        if cnt > 0:
+                            source_pii[ptype] = source_pii.get(ptype, 0) + cnt
+                            full_coverage.add(ptype)
+
+            # When the database already covered the structured entities, the sampled
+            # pass only needs to run NER (names / locations / free text).
+            sample_entities = NER_ENTITIES if pushed_down else None
 
             try:
+                records_seen = 0
                 for batch in connector.stream_batches(
                     source_name=source_name,
                     batch_size=settings.scan_batch_size,
+                    max_records=row_cap,
                 ):
-                    analyses = analyzer.analyze_batch(batch)
+                    analyses = analyzer.analyze_batch(batch, entities=sample_entities)
                     summary["records_scanned"] += len(batch)
+                    records_seen += len(batch)
                     for a in analyses:
                         for m in a.matches:
                             source_pii[m.pii_type] = source_pii.get(m.pii_type, 0) + 1
+                    if row_cap and records_seen >= row_cap:
+                        break
             except Exception as exc:
                 logger.warning("Scan %s: error in source %s: %s", scan_id, source_name, exc)
                 continue
 
             for pii_type, count in source_pii.items():
+                coverage = "full" if pii_type in full_coverage else "sampled"
                 all_findings.append(Finding(
                     id=str(uuid.uuid4()),
                     tenant_id=tenant_id,
@@ -191,7 +238,11 @@ def _execute_scan(
                     location={"source": source_name},
                     sample_count=count,
                     is_resolved=False,
-                    evidence={"detected_by": "presidio", "scan_id": scan_id},
+                    evidence={
+                        "detected_by": "sql_regex" if coverage == "full" else "presidio",
+                        "coverage": coverage,
+                        "scan_id": scan_id,
+                    },
                 ))
                 summary["pii_by_type"][pii_type] = summary["pii_by_type"].get(pii_type, 0) + count
 

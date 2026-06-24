@@ -30,8 +30,14 @@ class BaseConnector(abc.ABC):
     """
     Abstract connector that all asset connectors must implement.
     Provides: test_connection, list_sources, stream_batches.
-    Optional: search_records (native push-down), posture_check (misconfig scan).
+    Optional: search_records (native push-down), erase_records (DSR erasure),
+    profile_columns (in-database structured-PII detection), posture_check.
     """
+
+    # True when stream_batches yields one record per row, so the scan may apply a
+    # row sampling cap. Object-store connectors (which sample by object) set this
+    # to False and rely on their own object caps.
+    RECORD_SAMPLING: bool = True
 
     def __init__(self, asset_id: str, tenant_id: str, config: dict[str, Any]):
         self.asset_id = asset_id
@@ -71,6 +77,19 @@ class BaseConnector(abc.ABC):
         Returns ``None`` when the connector cannot erase natively (e.g. object
         stores), signalling the caller to handle erasure manually. Implementations
         MUST cap deletions at ``max_deletes`` and commit atomically.
+        """
+        return None
+
+    def profile_columns(self, source_name: str) -> dict[str, dict[str, int]] | None:
+        """
+        Optionally detect structured (regex-based) PII across ALL rows of a source
+        inside the data store with a single read-only pass, returning
+        ``{column: {entity_type: match_count}}``.
+
+        This gives full-coverage detection of structured identifiers without
+        streaming rows into the worker. Returns ``None`` when the connector cannot
+        push the regex down (object stores, NoSQL, SaaS), signalling the caller to
+        fall back to sampled Python classification.
         """
         return None
 

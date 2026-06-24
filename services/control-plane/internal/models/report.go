@@ -16,6 +16,7 @@ const (
 	ReportTypeIncidentReport   = "incident_report"
 	ReportTypeDPIA             = "dpia"
 	ReportTypeAuditEvidence    = "audit_evidence"
+	ReportTypeAIGovernance     = "ai_governance"
 )
 
 // Report status constants
@@ -31,7 +32,7 @@ type Report struct {
 
 	ID            string         `bun:"id,pk,type:uuid,default:uuid_generate_v4()" json:"id"`
 	TenantID      string         `bun:"tenant_id,notnull,type:uuid"                json:"tenant_id"`
-	ReportType    string         `bun:"report_type,notnull"                        json:"report_type"   validate:"required,oneof=dpdp_compliance executive_summary asset_inventory incident_report dpia audit_evidence"`
+	ReportType    string         `bun:"report_type,notnull"                        json:"report_type"   validate:"required,oneof=dpdp_compliance executive_summary asset_inventory incident_report dpia audit_evidence ai_governance"`
 	Title         string         `bun:"title,notnull"                              json:"title"         validate:"required,min=1,max=255"`
 	Status        string         `bun:"status,notnull,default:generating"          json:"status"`
 	FileURL       *string        `bun:"file_url"                                   json:"file_url"`
@@ -46,7 +47,7 @@ type Report struct {
 // ---- DTOs -------------------------------------------------------------------
 
 type GenerateReportInput struct {
-	ReportType string         `json:"report_type" validate:"required,oneof=dpdp_compliance executive_summary asset_inventory incident_report dpia audit_evidence"`
+	ReportType string         `json:"report_type" validate:"required,oneof=dpdp_compliance executive_summary asset_inventory incident_report dpia audit_evidence ai_governance"`
 	Title      string         `json:"title"       validate:"required,min=1,max=255"`
 	Parameters map[string]any `json:"parameters"`
 }

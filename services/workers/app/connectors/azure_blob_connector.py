@@ -37,6 +37,8 @@ class AzureBlobConnector(BaseConnector):
         super().__init__(asset_id, tenant_id, config)
         self._service = None
 
+    RECORD_SAMPLING = False  # samples by object, not by row
+
     def _get_service(self):
         if self._service is None:
             # Lazy import so the worker starts even without the Azure SDK.

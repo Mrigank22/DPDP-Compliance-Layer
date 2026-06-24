@@ -2,7 +2,35 @@
 
 import { useState } from "react";
 import { Check, Copy } from "lucide-react";
+import { Highlight, Prism, type PrismTheme } from "prism-react-renderer";
 import { cn } from "@/lib/cn";
+
+// prism-react-renderer's bundled Prism omits the shell grammar, so curl / CLI
+// snippets (the bulk of our examples) would render unhighlighted. Register a
+// focused bash grammar once so they get the same on-brand colours.
+if (typeof Prism !== "undefined" && Prism.languages && !Prism.languages.bash) {
+  Prism.languages.bash = {
+    comment: { pattern: /(^|[^"\\$])#.*/, lookbehind: true, greedy: true },
+    string: [
+      { pattern: /"(?:\\[\s\S]|\$\([^)]*\)|`[^`]*`|[^"\\])*"/, greedy: true },
+      { pattern: /'[^']*'/, greedy: true },
+    ],
+    variable: /\$(?:\{[^}]+\}|\w+)/,
+    function: {
+      pattern:
+        /(^|[\s;|&(])(?:curl|cd|npm|npx|pnpm|yarn|docker|docker-compose|kubectl|helm|git|python3?|pip3?|echo|cat|sudo|apt|apt-get|brew|node|go|make|bash|sh|chmod|mkdir|cp|mv|rm|ssh|scp|psql|mysql|terraform)(?=$|[\s;|&)])/,
+      lookbehind: true,
+    },
+    keyword: {
+      pattern: /(^|[\s;|&])(?:if|then|else|elif|fi|for|in|do|done|while|case|esac|function|return|export)(?=$|[\s;|&])/,
+      lookbehind: true,
+    },
+    operator: /--[\w-]+|-\w+|[|&]{1,2}|[<>]=?/,
+    number: /\b0x[\da-f]+\b|\b\d+\b/i,
+  };
+  Prism.languages.shell = Prism.languages.bash;
+  Prism.languages.sh = Prism.languages.bash;
+}
 
 interface CodeBlockProps {
   code: string;
@@ -13,10 +41,43 @@ interface CodeBlockProps {
   className?: string;
 }
 
+/** Common language labels → Prism grammar keys bundled with the renderer. */
+const LANG_ALIASES: Record<string, string> = {
+  sh: "bash",
+  shell: "bash",
+  zsh: "bash",
+  curl: "bash",
+  js: "javascript",
+  ts: "typescript",
+  yml: "yaml",
+  http: "bash",
+};
+
 /**
- * Themed, copyable code block. Kept dependency-free (no syntax-highlight engine)
- * so it stays fast and fully on-brand. Comments (# / //) and shell prompts get a
- * subtle tint via line-level styling.
+ * Syntax theme tuned to the DataSentinel "Threat Console" palette (signal-mint
+ * strings, electric-cyan functions, violet keywords, warm-amber numbers) so code
+ * reads on-brand on the obsidian code surface.
+ */
+const DS_THEME: PrismTheme = {
+  plain: { color: "#d3dbea", backgroundColor: "transparent" },
+  styles: [
+    { types: ["comment", "prolog", "doctype", "cdata"], style: { color: "#5a6680", fontStyle: "italic" } },
+    { types: ["punctuation"], style: { color: "#8b98b0" } },
+    { types: ["operator", "entity", "url"], style: { color: "#9aa7bf" } },
+    { types: ["keyword", "atrule", "rule", "important", "selector"], style: { color: "#9b8cff" } },
+    { types: ["boolean", "number", "constant", "symbol", "regex"], style: { color: "#ffb86b" } },
+    { types: ["string", "char", "attr-value", "inserted"], style: { color: "#3ddc97" } },
+    { types: ["function", "tag"], style: { color: "#34d2f0" } },
+    { types: ["attr-name", "property"], style: { color: "#7cc7ff" } },
+    { types: ["class-name", "builtin", "namespace", "maybe-class-name"], style: { color: "#ffd66b" } },
+    { types: ["variable"], style: { color: "#d3dbea" } },
+    { types: ["deleted"], style: { color: "#ff3b5c" } },
+  ],
+};
+
+/**
+ * Themed, copyable code block with on-brand syntax highlighting (powered by
+ * prism-react-renderer, tokenised at render time so it is SSR-safe).
  */
 export function CodeBlock({ code, lang, title, className }: CodeBlockProps) {
   const [copied, setCopied] = useState(false);
@@ -31,7 +92,9 @@ export function CodeBlock({ code, lang, title, className }: CodeBlockProps) {
     }
   };
 
-  const lines = code.replace(/\n$/, "").split("\n");
+  const cleaned = code.replace(/\n$/, "");
+  const key = (lang ?? "").toLowerCase();
+  const language = LANG_ALIASES[key] ?? key ?? "text";
 
   return (
     <div
@@ -59,26 +122,24 @@ export function CodeBlock({ code, lang, title, className }: CodeBlockProps) {
           {copied ? "Copied" : "Copy"}
         </button>
       </div>
-      <pre className="overflow-x-auto px-4 py-3.5 text-[12.5px] leading-relaxed">
-        <code className="font-mono text-foreground/90">
-          {lines.map((line, i) => {
-            const trimmed = line.trimStart();
-            const isComment =
-              trimmed.startsWith("#") || trimmed.startsWith("//");
-            return (
-              <span
-                key={i}
-                className={cn(
-                  "block whitespace-pre",
-                  isComment && "text-faint",
-                )}
-              >
-                {line.length ? line : "\u00A0"}
-              </span>
-            );
-          })}
-        </code>
-      </pre>
+      <Highlight code={cleaned} language={language} theme={DS_THEME}>
+        {({ tokens, getLineProps, getTokenProps }) => (
+          <pre className="overflow-x-auto px-4 py-3.5 font-mono text-[12.5px] leading-relaxed">
+            {tokens.map((line, i) => {
+              const isBlank = line.length === 1 && line[0].content === "";
+              return (
+                <div key={i} {...getLineProps({ line })} className="whitespace-pre">
+                  {isBlank
+                    ? "\u00A0"
+                    : line.map((token, k) => (
+                        <span key={k} {...getTokenProps({ token })} />
+                      ))}
+                </div>
+              );
+            })}
+          </pre>
+        )}
+      </Highlight>
     </div>
   );
 }

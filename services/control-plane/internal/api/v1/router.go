@@ -22,6 +22,8 @@ import (
 // Handlers bundles all handler instances for dependency injection.
 type Handlers struct {
 	Auth      *AuthHandler
+	SSO       *SSOHandler
+	SCIM      *SCIMHandler
 	Asset     *AssetHandler
 	Policy    *PolicyHandler
 	Finding   *FindingHandler
@@ -31,6 +33,7 @@ type Handlers struct {
 	Report    *ReportHandler
 	Gateway   *GatewayHandler
 	Detection *DetectionHandler
+	AIGov     *AIGovernanceHandler
 	Lineage   *LineageHandler
 	Audit     *AuditHandler
 	User      *UserHandler
@@ -70,7 +73,15 @@ func NewHandlers(
 	reportSvc := services.NewReportService(pg, ch, log, workerSvc)
 	gatewaySvc := services.NewGatewayService(pg, ch, log)
 	detectionSvc := services.NewDetectionService(pg, log)
+	aiGovSvc := services.NewAIGovernanceService(pg, ch, log)
+	ssoSvc := services.NewSSOService(pg, rdb, cfg, log, authSvc)
+	scimSvc := services.NewSCIMService(pg, log)
 	lineageSvc := services.NewLineageService(pg, log)
+
+	// Tamper-evident audit ledger: hook it into the ClickHouse audit choke point
+	// so every audit event is also appended to the per-tenant hash chain.
+	auditChainSvc := services.NewAuditChainService(pg, log)
+	ch.SetChainAppender(auditChainSvc)
 
 	webhookHandler := NewWebhookHandler(pg, log)
 	alertHandler := NewAlertHandler(alertSvc)
@@ -84,6 +95,8 @@ func NewHandlers(
 
 	return &Handlers{
 		Auth:      NewAuthHandler(authSvc),
+		SSO:       NewSSOHandler(ssoSvc, cfg.FrontendURL),
+		SCIM:      NewSCIMHandler(scimSvc),
 		Asset:     NewAssetHandler(assetSvc),
 		Policy:    NewPolicyHandler(policySvc),
 		Finding:   NewFindingHandler(findingSvc),
@@ -93,8 +106,9 @@ func NewHandlers(
 		Report:    NewReportHandler(reportSvc),
 		Gateway:   NewGatewayHandler(gatewaySvc),
 		Detection: NewDetectionHandler(detectionSvc),
+		AIGov:     NewAIGovernanceHandler(aiGovSvc),
 		Lineage:   NewLineageHandler(lineageSvc),
-		Audit:     NewAuditHandler(ch),
+		Audit:     NewAuditHandler(ch, auditChainSvc),
 		User:      NewUserHandler(pg, log),
 		Health:    NewHealthHandler(pg, rdb, ch),
 		Dashboard: NewDashboardHandler(pg, findingSvc, alertSvc, log),
@@ -112,11 +126,28 @@ func RegisterRoutes(r *gin.Engine, h *Handlers, authSvc *services.AuthService, p
 	r.Use(middleware.RequestID())
 	r.Use(middleware.Logger(log))
 	r.Use(middleware.Recovery(log))
+	r.Use(middleware.Metrics())
 	r.Use(corsMiddleware(cfg))
 
 	// ── Probe endpoints (no auth) ────────────────────────────────────────────
 	r.GET("/healthz", h.Health.Liveness)
 	r.GET("/readyz", h.Health.Readiness)
+	r.GET("/metrics", middleware.PrometheusHandler())
+
+	// ── SCIM 2.0 provisioning (bearer-token auth, top-level path) ────────────
+	// IdPs (Okta, Entra ID, …) provision users here using the per-tenant SCIM
+	// token. Tenant scope is resolved from the token, not a JWT.
+	scim := r.Group("/scim/v2")
+	scim.Use(middleware.RequireSCIMAuth(h.SCIM.Service()))
+	{
+		scim.GET("/ServiceProviderConfig", h.SCIM.ServiceProviderConfig)
+		scim.GET("/Users", h.SCIM.ListUsers)
+		scim.POST("/Users", h.SCIM.CreateUser)
+		scim.GET("/Users/:id", h.SCIM.GetUser)
+		scim.PUT("/Users/:id", h.SCIM.ReplaceUser)
+		scim.PATCH("/Users/:id", h.SCIM.PatchUser)
+		scim.DELETE("/Users/:id", h.SCIM.DeleteUser)
+	}
 
 	// ── API v1 base ──────────────────────────────────────────────────────────
 	v1 := r.Group("/api/v1")
@@ -132,6 +163,10 @@ func RegisterRoutes(r *gin.Engine, h *Handlers, authSvc *services.AuthService, p
 		auth.POST("/forgot-password", h.Auth.ForgotPassword)
 		auth.POST("/reset-password", h.Auth.ResetPassword)
 		auth.POST("/accept-invite", h.Auth.AcceptInvite)
+		// Enterprise SSO (OIDC) login flow.
+		auth.POST("/sso/start", h.SSO.StartLogin)
+		auth.GET("/sso/callback", h.SSO.Callback)
+		auth.POST("/sso/exchange", h.SSO.Exchange)
 	}
 
 	// ── Platform super-admin (vendor-level, separate identity space) ─────────
@@ -218,8 +253,40 @@ func RegisterRoutes(r *gin.Engine, h *Handlers, authSvc *services.AuthService, p
 		detection.PUT("", middleware.RequireRole(models.RoleAdmin), h.Detection.Update)
 	}
 
+	// Enterprise SSO connection (per-tenant OIDC) — admin only.
+	sso := api.Group("/sso")
+	sso.Use(middleware.RequireRole(models.RoleAdmin))
+	{
+		sso.GET("/connection", h.SSO.GetConnection)
+		sso.PUT("/connection", h.SSO.Update)
+		sso.DELETE("/connection", h.SSO.Delete)
+		// SCIM provisioning token (shown once on generation).
+		sso.POST("/scim-token", h.SCIM.GenerateToken)
+		sso.DELETE("/scim-token", h.SCIM.RevokeToken)
+	}
+
 	// Data lineage (personal-data inventory + flow graph)
 	api.GET("/lineage", h.Lineage.Get)
+
+	// AI Governance — Pillar 1: AI inventory, model catalog, shadow-AI discovery
+	ai := api.Group("/ai")
+	{
+		ai.GET("/systems", h.AIGov.ListSystems)
+		ai.POST("/systems", middleware.RequireRole(models.RoleAnalyst), h.AIGov.CreateSystem)
+		ai.GET("/systems/:id", h.AIGov.GetSystem)
+		ai.PATCH("/systems/:id", middleware.RequireRole(models.RoleAnalyst), h.AIGov.UpdateSystem)
+		ai.DELETE("/systems/:id", middleware.RequireRole(models.RoleAdmin), h.AIGov.DeleteSystem)
+		ai.GET("/systems/:id/assessments", h.AIGov.ListAssessments)
+		ai.PUT("/systems/:id/assessments/:framework", middleware.RequireRole(models.RoleAnalyst), h.AIGov.UpsertAssessment)
+		ai.POST("/systems/:id/transition", middleware.RequireRole(models.RoleAnalyst), h.AIGov.Transition)
+		ai.GET("/systems/:id/attestations", h.AIGov.ListAttestations)
+		ai.GET("/models", h.AIGov.ListModels)
+		ai.GET("/frameworks", h.AIGov.Frameworks)
+		ai.GET("/risk-register", h.AIGov.RiskRegister)
+		ai.GET("/discovery", h.AIGov.Discover)
+		ai.GET("/usage", h.AIGov.Usage)
+		ai.POST("/promote", middleware.RequireRole(models.RoleAnalyst), h.AIGov.Promote)
+	}
 
 	// Alerts
 	alerts := api.Group("/alerts")
@@ -251,8 +318,9 @@ func RegisterRoutes(r *gin.Engine, h *Handlers, authSvc *services.AuthService, p
 		policies.POST("/:id/rollback", middleware.RequireRole(models.RoleAdmin), h.Policy.Rollback)
 	}
 
-	// Rights Requests (DSRs)
+	// Rights Requests (DSRs) — handle data-principal personal data; analyst+ only.
 	rights := api.Group("/rights-requests")
+	rights.Use(middleware.RequireRole(models.RoleAnalyst))
 	{
 		rights.GET("", h.Rights.List)
 		rights.GET("/overdue", h.Rights.Overdue)
@@ -330,9 +398,11 @@ func RegisterRoutes(r *gin.Engine, h *Handlers, authSvc *services.AuthService, p
 
 	// Audit Logs
 	api.GET("/audit-logs", middleware.RequireRole(models.RoleAdmin), h.Audit.List)
+	api.GET("/audit-logs/verify", middleware.RequireRole(models.RoleAdmin), h.Audit.Verify)
 
-	// Consent records (DPDP consent ledger)
+	// Consent records (DPDP consent ledger) — contain data-principal data; analyst+ only.
 	consent := api.Group("/consent")
+	consent.Use(middleware.RequireRole(models.RoleAnalyst))
 	{
 		consent.GET("/summary", h.Consent.Summary)
 		consent.POST("/record", middleware.RequireRole(models.RoleAnalyst), h.Consent.Record)

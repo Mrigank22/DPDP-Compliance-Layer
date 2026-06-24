@@ -17,29 +17,44 @@ import {
   FileCheck2,
   ScrollText,
   BookText,
+  Brain,
+  Boxes,
+  ScanSearch,
+  Coins,
+  ShieldAlert,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useUIStore } from "@/lib/store/ui.store";
 import { useAuthStore } from "@/lib/store/auth.store";
+import { hasRole, roleOf, type Role } from "@/lib/auth/permissions";
 
 export const NAV_ITEMS = [
-  { name: "Overview", href: "/dashboard", icon: LayoutDashboard },
-  { name: "Assets", href: "/dashboard/assets", icon: Database },
-  { name: "Policies", href: "/dashboard/policies", icon: ShieldCheck },
-  { name: "Findings", href: "/dashboard/findings", icon: Bug },
-  { name: "Gateway", href: "/dashboard/gateway", icon: Waypoints },
-  { name: "Lineage", href: "/dashboard/lineage", icon: Share2 },
-  { name: "Reports", href: "/dashboard/reports", icon: FileBarChart },
-  { name: "Rights / DSR", href: "/dashboard/rights", icon: UserCheck },
-  { name: "Consent", href: "/dashboard/consent", icon: FileCheck2 },
-  { name: "Alerts", href: "/dashboard/alerts", icon: BellRing },
+  { name: "Overview", href: "/dashboard", icon: LayoutDashboard, min: "viewer" as Role },
+  { name: "Assets", href: "/dashboard/assets", icon: Database, min: "viewer" as Role },
+  { name: "Policies", href: "/dashboard/policies", icon: ShieldCheck, min: "viewer" as Role },
+  { name: "Findings", href: "/dashboard/findings", icon: Bug, min: "viewer" as Role },
+  { name: "Gateway", href: "/dashboard/gateway", icon: Waypoints, min: "viewer" as Role },
+  { name: "Lineage", href: "/dashboard/lineage", icon: Share2, min: "viewer" as Role },
+  { name: "Reports", href: "/dashboard/reports", icon: FileBarChart, min: "viewer" as Role },
+  { name: "Rights / DSR", href: "/dashboard/rights", icon: UserCheck, min: "analyst" as Role },
+  { name: "Consent", href: "/dashboard/consent", icon: FileCheck2, min: "analyst" as Role },
+  { name: "Alerts", href: "/dashboard/alerts", icon: BellRing, min: "viewer" as Role },
+] as const;
+
+export const AI_GOV_NAV_ITEMS = [
+  { name: "AI Discovery", href: "/dashboard/ai/discovery", icon: ScanSearch, min: "viewer" as Role },
+  { name: "AI Systems", href: "/dashboard/ai/systems", icon: Brain, min: "viewer" as Role },
+  { name: "Risk Register", href: "/dashboard/ai/risk", icon: ShieldAlert, min: "viewer" as Role },
+  { name: "Model Catalog", href: "/dashboard/ai/models", icon: Boxes, min: "viewer" as Role },
+  { name: "Usage & Cost", href: "/dashboard/ai/usage", icon: Coins, min: "viewer" as Role },
 ] as const;
 
 export function pageTitleFor(pathname: string): string {
   if (pathname === "/dashboard") return "Overview";
   if (pathname.startsWith("/dashboard/settings")) return "Settings";
   if (pathname.startsWith("/dashboard/audit")) return "Audit Trail";
-  const match = NAV_ITEMS.find(
+  const all = [...NAV_ITEMS, ...AI_GOV_NAV_ITEMS];
+  const match = all.find(
     (i) => i.href !== "/dashboard" && pathname.startsWith(i.href),
   );
   return match?.name ?? "Console";
@@ -91,6 +106,7 @@ function NavLink({
 function SidebarInner({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   const user = useAuthStore((s) => s.user);
+  const role = roleOf(user);
 
   const isActive = (href: string) =>
     href === "/dashboard" ? pathname === href : pathname.startsWith(href);
@@ -120,7 +136,20 @@ function SidebarInner({ onNavigate }: { onNavigate?: () => void }) {
         <p className="px-3 pb-2 font-mono text-[10px] uppercase tracking-[0.2em] text-faint">
           Operations
         </p>
-        {NAV_ITEMS.map((item) => (
+        {NAV_ITEMS.filter((item) => hasRole(role, item.min)).map((item) => (
+          <NavLink
+            key={item.href}
+            href={item.href}
+            name={item.name}
+            icon={item.icon}
+            active={isActive(item.href)}
+            onClick={onNavigate}
+          />
+        ))}
+        <p className="px-3 pb-2 pt-4 font-mono text-[10px] uppercase tracking-[0.2em] text-faint">
+          AI Governance
+        </p>
+        {AI_GOV_NAV_ITEMS.filter((item) => hasRole(role, item.min)).map((item) => (
           <NavLink
             key={item.href}
             href={item.href}
@@ -133,7 +162,7 @@ function SidebarInner({ onNavigate }: { onNavigate?: () => void }) {
         <p className="px-3 pb-2 pt-4 font-mono text-[10px] uppercase tracking-[0.2em] text-faint">
           Workspace
         </p>
-        {(user?.role === "admin" || user?.role === "owner") && (
+        {hasRole(role, "admin") && (
           <NavLink
             href="/dashboard/audit"
             name="Audit Trail"
@@ -142,13 +171,15 @@ function SidebarInner({ onNavigate }: { onNavigate?: () => void }) {
             onClick={onNavigate}
           />
         )}
-        <NavLink
-          href="/dashboard/settings"
-          name="Settings"
-          icon={Settings}
-          active={pathname.startsWith("/dashboard/settings")}
-          onClick={onNavigate}
-        />
+        {hasRole(role, "admin") && (
+          <NavLink
+            href="/dashboard/settings"
+            name="Settings"
+            icon={Settings}
+            active={pathname.startsWith("/dashboard/settings")}
+            onClick={onNavigate}
+          />
+        )}
         <NavLink
           href="/docs"
           name="Documentation"

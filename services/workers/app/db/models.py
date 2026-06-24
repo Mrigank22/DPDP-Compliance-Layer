@@ -368,3 +368,64 @@ class DetectionSetting(Base):
     updated_by           = Column(UUID(as_uuid=False), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at           = Column(DateTime(timezone=True), nullable=False, default=_now)
     updated_at           = Column(DateTime(timezone=True), nullable=False, default=_now, onupdate=_now)
+
+
+# ---------------------------------------------------------------------------
+# AI Governance (read-only here; written by the control-plane)
+# ---------------------------------------------------------------------------
+
+class AISystem(Base):
+    __tablename__ = "ai_systems"
+
+    id               = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    tenant_id        = Column(UUID(as_uuid=False), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    name             = Column(Text, nullable=False)
+    description      = Column(Text, nullable=False, default="")
+    owner            = Column(Text, nullable=False, default="")
+    lifecycle_stage  = Column(Text, nullable=False, default="discovered")
+    risk_tier        = Column(Text, nullable=False, default="unassessed")
+    providers        = Column(ARRAY(Text), nullable=False, default=list)
+    endpoints        = Column(ARRAY(Text), nullable=False, default=list)
+    status           = Column(Text, nullable=False, default="active")
+    tags             = Column(JSONB, nullable=False, default=dict)
+    approved_by      = Column(UUID(as_uuid=False), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    approved_at      = Column(DateTime(timezone=True), nullable=True)
+    last_reviewed_at = Column(DateTime(timezone=True), nullable=True)
+    review_due_at    = Column(DateTime(timezone=True), nullable=True)
+    created_by       = Column(UUID(as_uuid=False), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at       = Column(DateTime(timezone=True), nullable=False, default=_now)
+    updated_at       = Column(DateTime(timezone=True), nullable=False, default=_now, onupdate=_now)
+
+
+class AIModel(Base):
+    __tablename__ = "ai_models"
+
+    id             = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    tenant_id      = Column(UUID(as_uuid=False), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    ai_system_id   = Column(UUID(as_uuid=False), ForeignKey("ai_systems.id", ondelete="SET NULL"), nullable=True)
+    provider       = Column(Text, nullable=False)
+    model          = Column(Text, nullable=False)
+    display_name   = Column(Text, nullable=False, default="")
+    source         = Column(Text, nullable=False, default="registered")
+    first_seen_at  = Column(DateTime(timezone=True), nullable=True)
+    last_seen_at   = Column(DateTime(timezone=True), nullable=True)
+    call_count     = Column(BigInteger, nullable=False, default=0)
+    pii_call_count = Column(BigInteger, nullable=False, default=0)
+    created_at     = Column(DateTime(timezone=True), nullable=False, default=_now)
+    updated_at     = Column(DateTime(timezone=True), nullable=False, default=_now, onupdate=_now)
+
+
+class AIAssessment(Base):
+    __tablename__ = "ai_assessments"
+
+    id           = Column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    tenant_id    = Column(UUID(as_uuid=False), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    ai_system_id = Column(UUID(as_uuid=False), ForeignKey("ai_systems.id", ondelete="CASCADE"), nullable=False)
+    framework    = Column(Text, nullable=False)
+    status       = Column(Text, nullable=False, default="in_progress")
+    responses    = Column(JSONB, nullable=False, default=list)
+    score        = Column(Integer, nullable=False, default=0)
+    assessed_by  = Column(UUID(as_uuid=False), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at   = Column(DateTime(timezone=True), nullable=False, default=_now)
+    updated_at   = Column(DateTime(timezone=True), nullable=False, default=_now, onupdate=_now)

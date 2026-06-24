@@ -40,8 +40,10 @@ func NewPostgres(cfg *config.Config, log *zap.Logger) (*bun.DB, error) {
 
 	db := bun.NewDB(sqlDB, pgdialect.New())
 
-	// Query hook: set tenant context on every connection from pool
-	db.AddQueryHook(&tenantQueryHook{log: log})
+	// Structured logging of slow / failed queries. (Tenant isolation is enforced
+	// by explicit tenant_id predicates in every query plus the RLS backstop — see
+	// SetTenantContext — NOT by this hook.)
+	db.AddQueryHook(&queryLogHook{log: log})
 
 	log.Info("postgres connected", zap.String("dsn_host", maskDSN(cfg.DatabaseURL)))
 	return db, nil
@@ -73,9 +75,15 @@ func RunMigrations(db *bun.DB, migrationsPath string, log *zap.Logger) error {
 	return nil
 }
 
-// SetTenantContext injects the tenant ID into the PostgreSQL session so that
-// Row-Level Security policies are enforced. Must be called at the start of
-// every transaction or connection checkout that touches tenant-scoped tables.
+// SetTenantContext sets app.current_tenant_id so Row-Level Security policies
+// scope to one tenant. It uses SET LOCAL, which only persists for the duration
+// of the CURRENT transaction — so it is effective only when called on a bun.Tx
+// (e.g. inside RunInTx). Called on the pool in autocommit mode it is a no-op for
+// subsequent statements (they may run on a different pooled connection).
+//
+// RLS is therefore a defense-in-depth backstop; the primary tenant-isolation
+// control is the explicit `tenant_id = ?` predicate present on every
+// tenant-scoped query.
 func SetTenantContext(ctx context.Context, db bun.IDB, tenantID string) error {
 	_, err := db.ExecContext(ctx, "SET LOCAL app.current_tenant_id = ?", tenantID)
 	return err
@@ -103,16 +111,17 @@ func maskDSN(dsn string) string {
 	return "****"
 }
 
-// tenantQueryHook is a bun QueryHook that logs slow queries in development.
-type tenantQueryHook struct {
+// queryLogHook is a bun QueryHook that logs slow and failed queries. It does
+// NOT set tenant context (see SetTenantContext for that).
+type queryLogHook struct {
 	log *zap.Logger
 }
 
-func (h *tenantQueryHook) BeforeQuery(ctx context.Context, event *bun.QueryEvent) context.Context {
+func (h *queryLogHook) BeforeQuery(ctx context.Context, event *bun.QueryEvent) context.Context {
 	return ctx
 }
 
-func (h *tenantQueryHook) AfterQuery(ctx context.Context, event *bun.QueryEvent) {
+func (h *queryLogHook) AfterQuery(ctx context.Context, event *bun.QueryEvent) {
 	duration := time.Since(event.StartTime)
 	if duration > 500*time.Millisecond {
 		h.log.Warn("slow query",

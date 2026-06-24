@@ -151,6 +151,39 @@ class SnowflakeConnector(BaseConnector):
         finally:
             cur.close()
 
+    def profile_columns(self, source_name: str) -> dict[str, dict[str, int]] | None:
+        """Full-coverage structured-PII detection pushed down to Snowflake.
+
+        Uses REGEXP_COUNT (substring semantics) since Snowflake's REGEXP_LIKE is
+        whole-string anchored.
+        """
+        from app.pii.structured_patterns import build_profile_selects, map_profile_row, quote_lit
+
+        source = next((s for s in self.list_sources() if s["name"] == source_name), None)
+        if source is None:
+            return None
+        cols = [c["name"] for c in source.get("columns", [])]
+        if not cols:
+            return None
+
+        schema, db = self._schema(), self._database()
+        selects, meta = build_profile_selects(
+            cols, lambda c, p: f'REGEXP_COUNT(TO_VARCHAR("{c}"), {quote_lit(p)}) > 0'
+        )
+        if not selects:
+            return None
+
+        sql = f'SELECT {selects} FROM "{db}"."{schema}"."{source_name}"'
+        cur = self._get_conn().cursor()
+        try:
+            cur.execute(sql)
+            row = cur.fetchone()
+        finally:
+            cur.close()
+        if row is None:
+            return {}
+        return map_profile_row(meta, list(row))
+
     def close(self) -> None:
         if self._conn is not None:
             try:

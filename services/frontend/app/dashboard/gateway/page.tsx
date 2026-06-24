@@ -25,6 +25,7 @@ import { PII_TYPES } from "@/types/api";
 import { getApiErrorMessage } from "@/lib/api-client";
 import { toast } from "@/lib/store/toast.store";
 import { PageHeader, Panel } from "@/components/common/panel";
+import { Can } from "@/components/auth/can";
 import { StatCard } from "@/components/common/stat-card";
 import { DataTable, THead, TH, TBody, TR, TD } from "@/components/common/table";
 import { TableSkeleton, EmptyState, ErrorState, CardSkeleton } from "@/components/common/states";
@@ -273,9 +274,11 @@ export default function GatewayPage() {
         description="Live inspection of egress traffic — masking, blocking and tokenizing PII in flight."
         icon={<Waypoints className="h-5 w-5" />}
         actions={
-          <Button onClick={() => { setEditing(null); setRuleModalOpen(true); }}>
-            <Plus className="h-4 w-4" /> New Rule
-          </Button>
+          <Can min="admin">
+            <Button onClick={() => { setEditing(null); setRuleModalOpen(true); }}>
+              <Plus className="h-4 w-4" /> New Rule
+            </Button>
+          </Can>
         }
       />
 

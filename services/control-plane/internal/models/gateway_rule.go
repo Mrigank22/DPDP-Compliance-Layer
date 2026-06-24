@@ -78,6 +78,12 @@ type GatewayEvent struct {
 	ProcessingLatencyMs uint16    `json:"processing_latency_ms" ch:"processing_latency_ms"`
 	WasLLMCall          bool      `json:"was_llm_call" ch:"was_llm_call"`
 	LLMProvider         string    `json:"llm_provider" ch:"llm_provider"`
+	LLMModel            string    `json:"llm_model" ch:"llm_model"`
+	AIApp               string    `json:"ai_app" ch:"ai_app"`
+	AIUser              string    `json:"ai_user" ch:"ai_user"`
+	PromptTokens        uint32    `json:"prompt_tokens" ch:"prompt_tokens"`
+	CompletionTokens    uint32    `json:"completion_tokens" ch:"completion_tokens"`
+	TotalTokens         uint32    `json:"total_tokens" ch:"total_tokens"`
 	PolicyID            string    `json:"policy_id" ch:"policy_id"`
 }
 

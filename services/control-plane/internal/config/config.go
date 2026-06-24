@@ -17,6 +17,7 @@ type Config struct {
 	Env            string `mapstructure:"ENV"`
 	Port           int    `mapstructure:"PORT"`
 	BaseURL        string `mapstructure:"BASE_URL"`
+	FrontendURL    string `mapstructure:"FRONTEND_URL"`
 	AllowedOrigins string `mapstructure:"ALLOWED_ORIGINS"`
 
 	// PostgreSQL
@@ -86,6 +87,7 @@ func Load() (*Config, error) {
 	v.SetDefault("ENV", "production")
 	v.SetDefault("PORT", 3001)
 	v.SetDefault("BASE_URL", "http://localhost:3001")
+	v.SetDefault("FRONTEND_URL", "http://localhost:3000")
 	v.SetDefault("ALLOWED_ORIGINS", "http://localhost:3000")
 	v.SetDefault("DB_MAX_OPEN_CONNS", 25)
 	v.SetDefault("DB_MAX_IDLE_CONNS", 5)

@@ -8,16 +8,19 @@ import (
 	"github.com/datasentinel/control-plane/internal/db"
 	"github.com/datasentinel/control-plane/internal/middleware"
 	"github.com/datasentinel/control-plane/internal/models"
+	"github.com/datasentinel/control-plane/internal/services"
 )
 
-// AuditHandler handles audit log endpoints backed by ClickHouse.
+// AuditHandler handles audit log endpoints backed by ClickHouse, plus
+// integrity verification of the tamper-evident audit ledger (Postgres).
 type AuditHandler struct {
-	ch *db.ClickHouseClient
+	ch    *db.ClickHouseClient
+	chain *services.AuditChainService
 }
 
 // NewAuditHandler creates an AuditHandler.
-func NewAuditHandler(ch *db.ClickHouseClient) *AuditHandler {
-	return &AuditHandler{ch: ch}
+func NewAuditHandler(ch *db.ClickHouseClient, chain *services.AuditChainService) *AuditHandler {
+	return &AuditHandler{ch: ch, chain: chain}
 }
 
 // List godoc
@@ -41,4 +44,18 @@ func (h *AuditHandler) List(c *gin.Context) {
 		return
 	}
 	okPaginated(c, logs, models.NewPagination(page, pageSize, total))
+}
+
+// Verify godoc
+// GET /api/v1/audit-logs/verify
+//
+// Re-computes the tenant's tamper-evident audit hash chain and reports whether
+// any record was altered, inserted or removed.
+func (h *AuditHandler) Verify(c *gin.Context) {
+	result, err := h.chain.Verify(c.Request.Context(), middleware.GetTenantID(c))
+	if err != nil {
+		handleError(c, err)
+		return
+	}
+	ok(c, result)
 }

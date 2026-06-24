@@ -25,6 +25,8 @@ class S3Connector(BaseConnector):
         super().__init__(asset_id, tenant_id, config)
         self._client = None
 
+    RECORD_SAMPLING = False  # samples by object, not by row
+
     def _get_client(self):
         if self._client is None:
             kwargs: dict[str, Any] = {"region_name": self.config.get("region", settings.aws_region)}

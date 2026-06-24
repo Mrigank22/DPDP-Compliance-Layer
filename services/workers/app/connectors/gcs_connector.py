@@ -36,6 +36,8 @@ class GCSConnector(BaseConnector):
         super().__init__(asset_id, tenant_id, config)
         self._client = None
 
+    RECORD_SAMPLING = False  # samples by object, not by row
+
     def _get_client(self):
         if self._client is None:
             # Lazy import so a worker without the GCP SDK still starts and only

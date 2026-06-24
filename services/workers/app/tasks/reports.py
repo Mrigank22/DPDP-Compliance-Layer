@@ -9,7 +9,19 @@ from typing import Any
 from app.celery_app import app
 from app.config import settings
 from app.db.client import get_db
-from app.db.models import Asset, ConsentRecord, Finding, Policy, Report, RightsRequest, Scan, Tenant
+from app.db.models import (
+    AIAssessment,
+    AIModel,
+    AISystem,
+    Asset,
+    ConsentRecord,
+    Finding,
+    Policy,
+    Report,
+    RightsRequest,
+    Scan,
+    Tenant,
+)
 from app.tasks.report_html import render_report_html
 
 logger = logging.getLogger(__name__)
@@ -145,6 +157,13 @@ def _build_content(db, report: Report, tenant_id: str) -> dict[str, Any]:
         content["consent_summary"] = _consent_summary(db, tenant_id)
         content["policies"]        = _policy_summary(db, tenant_id)
 
+    elif rtype == "ai_governance":
+        systems = _ai_systems(db, tenant_id)
+        content["ai_overview"]         = _ai_overview(systems)
+        content["ai_systems"]          = systems
+        content["ai_models"]           = _ai_models(db, tenant_id)
+        content["framework_readiness"] = _ai_framework_readiness(db, tenant_id)
+
     return content
 
 
@@ -197,6 +216,90 @@ def _asset_breakdown(assets: list[dict]) -> dict[str, dict]:
         by_type[t] = by_type.get(t, 0) + 1
         by_provider[p] = by_provider.get(p, 0) + 1
     return {"by_type": by_type, "by_provider": by_provider}
+
+
+# ---------------------------------------------------------------------------
+# AI governance builders
+# ---------------------------------------------------------------------------
+
+_TIER_INHERENT = {"prohibited": 100, "high": 85, "limited": 45, "minimal": 15, "unassessed": 60}
+_FRAMEWORK_LABELS = {
+    "nist_ai_rmf": "NIST AI RMF",
+    "eu_ai_act": "EU AI Act",
+    "iso_42001": "ISO 42001",
+    "dpdp": "DPDP",
+}
+
+
+def _ai_systems(db, tenant_id: str) -> list[dict[str, Any]]:
+    systems = (
+        db.query(AISystem)
+        .filter(AISystem.tenant_id == tenant_id)
+        .order_by(AISystem.created_at.desc())
+        .all()
+    )
+    assessments = db.query(AIAssessment).filter(AIAssessment.tenant_id == tenant_id).all()
+    by_system: dict[str, list] = {}
+    for a in assessments:
+        by_system.setdefault(a.ai_system_id, []).append(a)
+
+    out = []
+    for s in systems:
+        sa = by_system.get(s.id, [])
+        inherent = _TIER_INHERENT.get(s.risk_tier, 60)
+        readiness = round(sum(a.score for a in sa) / len(sa)) if sa else 0
+        residual = round(inherent * (1 - 0.7 * readiness / 100))
+        out.append({
+            "name":                s.name,
+            "owner":               s.owner,
+            "lifecycle_stage":     s.lifecycle_stage,
+            "risk_tier":           s.risk_tier,
+            "providers":           list(s.providers or []),
+            "inherent":            inherent,
+            "readiness":           readiness,
+            "residual":            residual,
+            "frameworks_assessed": len(sa),
+            "approved_at":         s.approved_at.isoformat() if s.approved_at else None,
+            "review_due_at":       s.review_due_at.isoformat() if s.review_due_at else None,
+        })
+    return out
+
+
+def _ai_overview(systems: list[dict]) -> dict[str, Any]:
+    n = len(systems)
+    return {
+        "total_systems": n,
+        "approved":      sum(1 for s in systems if s["lifecycle_stage"] == "approved"),
+        "assessed":      sum(1 for s in systems if s["frameworks_assessed"] > 0),
+        "high_risk":     sum(1 for s in systems if s["residual"] >= 70),
+        "avg_residual":  round(sum(s["residual"] for s in systems) / n) if n else 0,
+    }
+
+
+def _ai_models(db, tenant_id: str) -> list[dict[str, Any]]:
+    models = (
+        db.query(AIModel)
+        .filter(AIModel.tenant_id == tenant_id)
+        .order_by(AIModel.provider, AIModel.model)
+        .all()
+    )
+    return [{
+        "provider":   m.provider,
+        "model":      m.display_name or m.model,
+        "source":     m.source,
+        "call_count": int(m.call_count or 0),
+    } for m in models]
+
+
+def _ai_framework_readiness(db, tenant_id: str) -> dict[str, int]:
+    assessments = db.query(AIAssessment).filter(AIAssessment.tenant_id == tenant_id).all()
+    agg: dict[str, list] = {}
+    for a in assessments:
+        agg.setdefault(a.framework, []).append(a.score)
+    return {
+        _FRAMEWORK_LABELS.get(k, k): round(sum(v) / len(v))
+        for k, v in agg.items() if v
+    }
 
 
 def _top_risk_assets(assets: list[dict], n: int = 8) -> list[dict]:

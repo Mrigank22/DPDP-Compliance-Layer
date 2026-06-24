@@ -14,7 +14,7 @@ export default function Scans() {
   return (
     <>
       <Lead>
-        A scan samples a connected asset and classifies the personal data it
+        A scan inspects a connected asset and classifies the personal data it
         contains. Scans run on background <strong>workers</strong> organised into
         queues, so large jobs never block the console.
       </Lead>
@@ -25,12 +25,21 @@ export default function Scans() {
         <li>Decrypts the asset’s connection config in-memory and connects read-only.</li>
         <li>
           Enumerates sources (object keys for S3; tables and columns for
-          databases) and samples records in batches.
+          databases).
         </li>
         <li>
-          Runs each value through the PII engine, which is tuned for Indian
-          identifiers and validates checksums (for example the Verhoeff check on
-          Aadhaar).
+          For warehouses and SQL databases, profiles{" "}
+          <strong>structured identifiers</strong> — Aadhaar, PAN, GSTIN, IFSC,
+          Voter&nbsp;ID, email, phone and card numbers — directly inside the
+          database with a single read-only query, so they are counted across{" "}
+          <strong>every row</strong> without copying data out.
+        </li>
+        <li>
+          Streams a <strong>sample</strong> of records through the PII engine,
+          which is tuned for Indian identifiers and validates checksums (for
+          example the Verhoeff check on Aadhaar). This pass catches free-text PII
+          such as <strong>names</strong> and <strong>addresses</strong> that only
+          natural-language analysis can find.
         </li>
         <li>
           Writes one <strong>finding</strong> per source and PII type, updates the
@@ -44,6 +53,50 @@ export default function Scans() {
         a count and a safely-masked sample — never the underlying personal data.
       </Callout>
 
+      <H2 id="coverage-and-sampling">Coverage &amp; sampling</H2>
+      <p>
+        To stay fast on very large tables, a scan combines two passes with
+        different coverage. Knowing which is which tells you how to read the
+        count on a finding.
+      </p>
+      <Table
+        head={["Pass", "Detects", "Coverage"]}
+        rows={[
+          [
+            "In-database profiling",
+            "Structured identifiers — Aadhaar, PAN, GSTIN, IFSC, Voter ID, email, phone, card numbers.",
+            "Every row — exact counts.",
+          ],
+          [
+            "Sampled analysis",
+            "Free-text PII — names, addresses and other entities that need language analysis.",
+            "A capped sample of rows — counts are representative estimates.",
+          ],
+        ]}
+      />
+      <p>
+        The sample is capped at <strong>1,000 rows per source</strong> by default
+        for incremental scans, so re-scanning a billion-row table never re-reads
+        it in full. A <strong>full</strong> scan removes the cap and runs the
+        language model over every row as well — use it for a definitive audit, and
+        rely on incremental scans for routine monitoring.
+      </p>
+      <Callout variant="note" title="Other source types">
+        Object stores (Amazon S3, Google Cloud Storage, Azure Blob) are sampled by{" "}
+        <em>object</em> up to a configurable per-scan limit, since each file is
+        inspected as a whole. Sources without a queryable engine — MongoDB,
+        Salesforce and object stores — detect all PII types from the sample rather
+        than the in-database pass.
+      </Callout>
+      <p>
+        Building an integration? Each finding’s <code>evidence</code> object
+        records how it was detected — <code>detected_by</code>{" "}
+        (<code>sql_regex</code> for the full in-database pass, <code>presidio</code>
+        for the sampled pass) and <code>coverage</code> (<code>full</code> or{" "}
+        <code>sampled</code>) — so you can tell exact counts from estimates
+        programmatically.
+      </p>
+
       <H2 id="run-a-scan">Run a scan</H2>
       <Steps>
         <Step title="Open the asset">
@@ -54,9 +107,9 @@ export default function Scans() {
         <Step title="Start the scan">
           <p>
             Click <strong>Run scan</strong> and choose a scan type:{" "}
-            <strong>full</strong> (sample everything within limits) or{" "}
-            <strong>incremental</strong> (lighter, for routine re-checks). The
-            asset status changes to <em>scanning</em>.
+            <strong>full</strong> (exhaustive — reads every row, no sampling cap)
+            or <strong>incremental</strong> (lighter — caps the free-text sample,
+            for routine re-checks). The asset status changes to <em>scanning</em>.
           </p>
         </Step>
         <Step title="Watch progress">

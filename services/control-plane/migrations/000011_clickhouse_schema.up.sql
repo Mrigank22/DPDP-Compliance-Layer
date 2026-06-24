@@ -22,12 +22,27 @@ CREATE TABLE IF NOT EXISTS datasentinel.gateway_events (
     processing_latency_ms UInt16,
     was_llm_call          Bool DEFAULT false,
     llm_provider          String DEFAULT '',
+    llm_model             String DEFAULT '',   -- e.g. gpt-4o, claude-3-5-sonnet (AI inventory)
+    ai_app                String DEFAULT '',   -- X-AI-App attribution header (which AI system)
+    ai_user               String DEFAULT '',   -- X-AI-User attribution header (which caller)
+    prompt_tokens         UInt32 DEFAULT 0,    -- LLM token usage (AI usage & cost)
+    completion_tokens     UInt32 DEFAULT 0,
+    total_tokens          UInt32 DEFAULT 0,
     policy_id             UUID
 ) ENGINE = MergeTree()
 PARTITION BY toYYYYMM(timestamp)
 ORDER BY (tenant_id, timestamp)
 TTL timestamp + INTERVAL 2 YEAR
 SETTINGS index_granularity = 8192;
+
+-- For existing deployments, add the AI-inventory + usage columns in place:
+--   ALTER TABLE datasentinel.gateway_events
+--     ADD COLUMN IF NOT EXISTS llm_model         String DEFAULT '',
+--     ADD COLUMN IF NOT EXISTS ai_app            String DEFAULT '',
+--     ADD COLUMN IF NOT EXISTS ai_user           String DEFAULT '',
+--     ADD COLUMN IF NOT EXISTS prompt_tokens     UInt32 DEFAULT 0,
+--     ADD COLUMN IF NOT EXISTS completion_tokens UInt32 DEFAULT 0,
+--     ADD COLUMN IF NOT EXISTS total_tokens      UInt32 DEFAULT 0;
 
 -- -----------------------------------------------------------------------
 -- audit_logs: immutable user-action audit trail (7-year retention per DPDP)

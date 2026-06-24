@@ -148,6 +148,13 @@ func (h *LLMHandler) Handle(c *gin.Context) {
 	prompts := extractPrompts(rawBody, provider)
 	promptText := strings.Join(prompts, "\n")
 
+	// Model identity + caller attribution for AI inventory / shadow-AI discovery.
+	// Model comes from the request envelope (or the URL for Gemini); app/user are
+	// optional client-supplied headers that attribute the call to an AI system.
+	model := extractModel(rawBody, provider, upstreamRaw)
+	aiApp := strings.TrimSpace(c.GetHeader("X-AI-App"))
+	aiUser := strings.TrimSpace(c.GetHeader("X-AI-User"))
+
 	var (
 		promptPIITypes []string
 		promptFields   []string
@@ -175,7 +182,7 @@ func (h *LLMHandler) Handle(c *gin.Context) {
 			wasBlocked = true
 			actionTaken = "blocked"
 			h.writeAuditEvent(tid, rule, requestID, c, "blocked",
-				promptPIITypes, promptFields, len(rawBody), start, string(provider))
+				promptPIITypes, promptFields, len(rawBody), start, string(provider), model, aiApp, aiUser)
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
 				"error":      "LLM request blocked — prompt contains personal data",
 				"policy":     rule.Name,
@@ -313,6 +320,12 @@ func (h *LLMHandler) Handle(c *gin.Context) {
 		ProcessingLatencyMs: latencyMs,
 		WasLLMCall:          true,
 		LLMProvider:         string(provider),
+		LLMModel:            model,
+		AIApp:               aiApp,
+		AIUser:              aiUser,
+		PromptTokens:        uint32(usage.PromptTokens),
+		CompletionTokens:    uint32(usage.CompletionTokens),
+		TotalTokens:         uint32(usage.TotalTokens),
 		PolicyID:            polID,
 	})
 
@@ -472,6 +485,35 @@ func extractPrompts(body []byte, provider llmProvider) []string {
 	}
 
 	return texts
+}
+
+// extractModel returns the model identifier for an LLM call, used to build the
+// AI inventory and surface shadow-AI usage. Most providers carry it in the JSON
+// body ({"model": "..."}); Google Gemini encodes it in the URL path.
+func extractModel(body []byte, provider llmProvider, rawURL string) string {
+	if len(body) > 0 {
+		var raw map[string]any
+		if err := json.Unmarshal(body, &raw); err == nil {
+			if m, ok := raw["model"].(string); ok {
+				if m = strings.TrimSpace(m); m != "" {
+					return m
+				}
+			}
+		}
+	}
+	// Gemini: /v1beta/models/gemini-1.5-pro:generateContent
+	if provider == providerGoogle {
+		if i := strings.LastIndex(rawURL, "/models/"); i != -1 {
+			seg := rawURL[i+len("/models/"):]
+			if j := strings.IndexAny(seg, ":/?"); j != -1 {
+				seg = seg[:j]
+			}
+			if seg = strings.TrimSpace(seg); seg != "" {
+				return seg
+			}
+		}
+	}
+	return ""
 }
 
 // extractContent handles the OpenAI content field which can be string or
@@ -833,6 +875,7 @@ func (h *LLMHandler) writeAuditEvent(
 	bodySize int,
 	start time.Time,
 	provider string,
+	model, aiApp, aiUser string,
 ) {
 	latencyMs := uint16(time.Since(start).Milliseconds())
 	h.proxy.auditWriter.Write(&audit.GatewayEvent{
@@ -851,6 +894,9 @@ func (h *LLMHandler) writeAuditEvent(
 		ProcessingLatencyMs: latencyMs,
 		WasLLMCall:          true,
 		LLMProvider:         provider,
+		LLMModel:            model,
+		AIApp:               aiApp,
+		AIUser:              aiUser,
 		PolicyID:            rule.PolicyID,
 	})
 }

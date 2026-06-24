@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Loader2, Lock, Mail, ShieldAlert, Terminal } from "lucide-react";
+import { Loader2, Lock, Mail, ShieldAlert, Terminal, KeyRound } from "lucide-react";
 import { authAPI } from "@/lib/api/auth";
 import { getApiErrorMessage, getApiErrorCode } from "@/lib/api-client";
 import { useAuthStore } from "@/lib/store/auth.store";
@@ -20,7 +20,34 @@ export default function LoginPage() {
   const [totp, setTotp] = useState("");
   const [mfaRequired, setMfaRequired] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [ssoLoading, setSsoLoading] = useState(false);
+  const [error, setError] = useState(() => {
+    if (typeof window === "undefined") return "";
+    return new URLSearchParams(window.location.search).get("sso_error") ?? "";
+  });
+
+  // Clean the sso_error param from the URL after it's been read into state.
+  useEffect(() => {
+    if (window.location.search.includes("sso_error")) {
+      window.history.replaceState({}, "", "/login");
+    }
+  }, []);
+
+  const handleSSO = async () => {
+    setError("");
+    if (!email.trim()) {
+      setError("Enter your work email, then continue with SSO.");
+      return;
+    }
+    setSsoLoading(true);
+    try {
+      const res = await authAPI.ssoStart(email.trim());
+      window.location.href = res.data.authorization_url;
+    } catch (err) {
+      setError(getApiErrorMessage(err, "Single sign-on isn't configured for this email domain."));
+      setSsoLoading(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -147,8 +174,27 @@ export default function LoginPage() {
         <div className="h-px flex-1 bg-border" />
       </div>
 
-      <Link href="/signup">
-        <Button variant="outline" size="lg" className="w-full">
+      <Button
+        type="button"
+        variant="outline"
+        size="lg"
+        className="w-full"
+        onClick={handleSSO}
+        disabled={ssoLoading}
+      >
+        {ssoLoading ? (
+          <>
+            <Loader2 className="h-4 w-4 animate-spin" /> Redirecting to your provider…
+          </>
+        ) : (
+          <>
+            <KeyRound className="h-4 w-4" /> Continue with SSO
+          </>
+        )}
+      </Button>
+
+      <Link href="/signup" className="mt-3 block">
+        <Button variant="ghost" size="lg" className="w-full">
           Provision a new workspace
         </Button>
       </Link>

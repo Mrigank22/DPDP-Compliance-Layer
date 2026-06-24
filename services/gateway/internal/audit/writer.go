@@ -33,6 +33,12 @@ type GatewayEvent struct {
 	ProcessingLatencyMs uint16
 	WasLLMCall          bool
 	LLMProvider         string
+	LLMModel            string
+	AIApp               string
+	AIUser              string
+	PromptTokens        uint32
+	CompletionTokens    uint32
+	TotalTokens         uint32
 	PolicyID            string
 }
 
@@ -161,7 +167,8 @@ func (w *Writer) insertBatch(ctx context.Context, events []*GatewayEvent) error 
 		(id, tenant_id, gateway_rule_id, timestamp, request_id, source_ip,
 		 destination_url, http_method, action_taken, pii_types_detected,
 		 field_names, payload_size_bytes, processing_latency_ms,
-		 was_llm_call, llm_provider, policy_id)
+		 was_llm_call, llm_provider, llm_model, ai_app, ai_user,
+		 prompt_tokens, completion_tokens, total_tokens, policy_id)
 		VALUES`
 
 	// Build the batch using ClickHouse Go driver batch API
@@ -171,7 +178,7 @@ func (w *Writer) insertBatch(ctx context.Context, events []*GatewayEvent) error 
 	}
 
 	stmt, err := scope.PrepareContext(ctx, query+
-		` (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+		` (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		scope.Rollback()
 		return fmt.Errorf("prepare stmt: %w", err)
@@ -184,7 +191,8 @@ func (w *Writer) insertBatch(ctx context.Context, events []*GatewayEvent) error 
 			e.RequestID, e.SourceIP, e.DestinationURL, e.HTTPMethod,
 			e.ActionTaken, e.PIITypesDetected, e.FieldNames,
 			e.PayloadSizeBytes, e.ProcessingLatencyMs,
-			e.WasLLMCall, e.LLMProvider, e.PolicyID,
+			e.WasLLMCall, e.LLMProvider, e.LLMModel, e.AIApp, e.AIUser,
+			e.PromptTokens, e.CompletionTokens, e.TotalTokens, e.PolicyID,
 		); err != nil {
 			scope.Rollback()
 			return fmt.Errorf("exec row: %w", err)
