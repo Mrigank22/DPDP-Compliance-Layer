@@ -28,6 +28,7 @@ const PAGE_ACCESS: { prefix: string; min: Role }[] = [
   { prefix: "/dashboard/team", min: "admin" },
   { prefix: "/dashboard/rights", min: "analyst" },
   { prefix: "/dashboard/consent", min: "analyst" },
+  { prefix: "/dashboard/breaches", min: "analyst" },
 ];
 
 /** Minimum role required to view a given dashboard path. */

@@ -37,6 +37,7 @@ type Handlers struct {
 	Lineage   *LineageHandler
 	Audit     *AuditHandler
 	User      *UserHandler
+	Breach    *BreachHandler
 	Health    *HealthHandler
 	Dashboard *DashboardHandler
 	APIKey    *APIKeyHandler
@@ -77,6 +78,7 @@ func NewHandlers(
 	ssoSvc := services.NewSSOService(pg, rdb, cfg, log, authSvc)
 	scimSvc := services.NewSCIMService(pg, log)
 	lineageSvc := services.NewLineageService(pg, log)
+	breachSvc := services.NewBreachService(pg, ch, log)
 
 	// Tamper-evident audit ledger: hook it into the ClickHouse audit choke point
 	// so every audit event is also appended to the per-tenant hash chain.
@@ -110,6 +112,7 @@ func NewHandlers(
 		Lineage:   NewLineageHandler(lineageSvc),
 		Audit:     NewAuditHandler(ch, auditChainSvc),
 		User:      NewUserHandler(pg, log),
+		Breach:    NewBreachHandler(breachSvc),
 		Health:    NewHealthHandler(pg, rdb, ch),
 		Dashboard: NewDashboardHandler(pg, findingSvc, alertSvc, log),
 		APIKey:    NewAPIKeyHandler(pg, log),
@@ -333,6 +336,24 @@ func RegisterRoutes(r *gin.Engine, h *Handlers, authSvc *services.AuthService, p
 		rights.POST("/:id/complete", middleware.RequireRole(models.RoleAnalyst), h.Rights.Complete)
 		rights.POST("/:id/reject", middleware.RequireRole(models.RoleAdmin), h.Rights.Reject)
 		rights.POST("/:id/search", middleware.RequireRole(models.RoleAnalyst), h.Rights.SearchPrincipal)
+	}
+
+	// Breach incidents (DPDP §8(6)) — analyst+ to view/record/assess; admin to
+	// record the Board/principal intimations and to close or delete.
+	breaches := api.Group("/breaches")
+	breaches.Use(middleware.RequireRole(models.RoleAnalyst))
+	{
+		breaches.GET("", h.Breach.List)
+		breaches.GET("/stats", h.Breach.Stats)
+		breaches.POST("", h.Breach.Create)
+		breaches.GET("/:id", h.Breach.Get)
+		breaches.PATCH("/:id", h.Breach.Update)
+		breaches.GET("/:id/evidence", h.Breach.Evidence)
+		breaches.POST("/:id/timeline", h.Breach.AddTimeline)
+		breaches.POST("/:id/notify-board", middleware.RequireRole(models.RoleAdmin), h.Breach.NotifyBoard)
+		breaches.POST("/:id/notify-principals", middleware.RequireRole(models.RoleAdmin), h.Breach.NotifyPrincipals)
+		breaches.POST("/:id/close", middleware.RequireRole(models.RoleAdmin), h.Breach.Close)
+		breaches.DELETE("/:id", middleware.RequireRole(models.RoleAdmin), h.Breach.Delete)
 	}
 
 	// Reports

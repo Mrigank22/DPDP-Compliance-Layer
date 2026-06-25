@@ -22,6 +22,7 @@ import {
   ScanSearch,
   Coins,
   ShieldAlert,
+  Siren,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useUIStore } from "@/lib/store/ui.store";
@@ -38,6 +39,7 @@ export const NAV_ITEMS = [
   { name: "Reports", href: "/dashboard/reports", icon: FileBarChart, min: "viewer" as Role },
   { name: "Rights / DSR", href: "/dashboard/rights", icon: UserCheck, min: "analyst" as Role },
   { name: "Consent", href: "/dashboard/consent", icon: FileCheck2, min: "analyst" as Role },
+  { name: "Breaches", href: "/dashboard/breaches", icon: Siren, min: "analyst" as Role },
   { name: "Alerts", href: "/dashboard/alerts", icon: BellRing, min: "viewer" as Role },
 ] as const;
 

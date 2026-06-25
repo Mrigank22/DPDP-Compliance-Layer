@@ -46,6 +46,12 @@ const (
 	AuditActionRightsRequestCreated = "rights_request.created"
 	AuditActionRightsRequestUpdated = "rights_request.updated"
 	AuditActionTenantUpdated      = "tenant.updated"
+	AuditActionBreachCreated          = "breach.created"
+	AuditActionBreachUpdated          = "breach.updated"
+	AuditActionBreachBoardNotified    = "breach.board_notified"
+	AuditActionBreachPrincipalsNotified = "breach.principals_notified"
+	AuditActionBreachClosed           = "breach.closed"
+	AuditActionBreachDeleted          = "breach.deleted"
 )
 
 // AuditLogFilter is the query filter for listing audit logs.

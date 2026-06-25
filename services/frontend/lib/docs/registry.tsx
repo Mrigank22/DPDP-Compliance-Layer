@@ -13,6 +13,7 @@ import LlmGuard from "@/components/docs/content/llm-guard";
 import AIGovernance from "@/components/docs/content/ai-governance";
 import Rights from "@/components/docs/content/rights";
 import Consent from "@/components/docs/content/consent";
+import BreachResponse from "@/components/docs/content/breach-response";
 import Reports from "@/components/docs/content/reports";
 import ApiKeys from "@/components/docs/content/api-keys";
 import ApiReference from "@/components/docs/content/api-reference";
@@ -42,6 +43,7 @@ export const DOC_COMPONENTS: Record<string, ComponentType> = {
   "ai-governance": AIGovernance,
   rights: Rights,
   consent: Consent,
+  "breach-response": BreachResponse,
   reports: Reports,
   "api-keys": ApiKeys,
   "api-reference": ApiReference,

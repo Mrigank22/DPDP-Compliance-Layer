@@ -111,6 +111,11 @@ export const DOC_NAV: DocGroup[] = [
         description: "Record, summarise and withdraw consent by purpose.",
       },
       {
+        slug: "breach-response",
+        title: "Breach response",
+        description: "Record breaches and track the §8(6) intimations to the Board and principals.",
+      },
+      {
         slug: "reports",
         title: "Reports & evidence",
         description: "Generate DPDP, DPIA and audit-evidence documents.",
